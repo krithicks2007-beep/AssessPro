@@ -13,8 +13,60 @@ export default function Results({
   tests,
   studentSubmissions,
   studentName,
+  isDemoMaster = false,
   onNavigateToTests
 }) {
+  const demoSubmissions = [
+    {
+      id: 'demo-sub-1',
+      test_id: 'test-101',
+      test_title: 'Data Structures & Logic Essentials',
+      score: 90,
+      max_score: 100,
+      percentage: 90,
+      tab_switch_count: 0,
+      submitted_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+      status: 'completed'
+    },
+    {
+      id: 'demo-sub-2',
+      test_id: 'test-102',
+      test_title: 'Microcontroller Architecture & Control Loops',
+      score: 70,
+      max_score: 100,
+      percentage: 70,
+      tab_switch_count: 0,
+      submitted_at: new Date(Date.now() - 86400000 * 5).toISOString(),
+      status: 'completed'
+    },
+    {
+      id: 'demo-sub-3',
+      test_id: 'test-103',
+      test_title: 'Control Systems & Transfer Functions',
+      score: 80,
+      max_score: 100,
+      percentage: 80,
+      tab_switch_count: 1,
+      submitted_at: new Date(Date.now() - 86400000 * 9).toISOString(),
+      status: 'completed'
+    },
+    {
+      id: 'demo-sub-4',
+      test_id: 'test-104',
+      test_title: 'Digital Electronics & Logic Gates',
+      score: 72,
+      max_score: 100,
+      percentage: 72,
+      tab_switch_count: 0,
+      submitted_at: new Date(Date.now() - 86400000 * 14).toISOString(),
+      status: 'completed'
+    }
+  ];
+
+  const effectiveSubmissions = (isDemoMaster && (!studentSubmissions || studentSubmissions.length === 0))
+    ? demoSubmissions
+    : (studentSubmissions || []);
+
   return (
     <div className="dashboard-content">
       <div style={{
@@ -33,7 +85,7 @@ export default function Results({
         </p>
       </div>
 
-      {studentSubmissions.length === 0 ? (
+      {effectiveSubmissions.length === 0 ? (
         <div style={{
           background: '#ffffff',
           border: '1px solid #e2e8f0',
@@ -89,12 +141,12 @@ export default function Results({
               </tr>
             </thead>
             <tbody>
-              {studentSubmissions.map((sub, idx) => {
+              {effectiveSubmissions.map((sub, idx) => {
                 const relatedTest = tests.find(t => t.id === sub.test_id);
                 return (
                   <tr key={sub.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#0f172a' }}>
-                      {relatedTest?.title || `Assessment #${idx + 1}`}
+                      {relatedTest?.title || sub.test_title || `Assessment #${idx + 1}`}
                     </td>
                     <td style={{ padding: '1rem 1rem', fontWeight: 600 }}>
                       {sub.score} / {sub.max_score}

@@ -91,6 +91,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const safeTests = Array.isArray(tests) ? tests : [];
   const safeStudentSubmissions = Array.isArray(studentSubmissions) ? studentSubmissions : [];
 
+  const isDemoMaster = isMasterAccount(email);
+  const demoBenchmarks = [85, 72, 76, 80, 84, 78];
+
   // Dynamic real score calculations for individual students
   const completedSubs = safeStudentSubmissions.filter(s => s.status === 'completed');
   const realTestsCompletedCount = completedSubs.length;
@@ -98,10 +101,12 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
     : 0;
 
-  const overallScore = realOverallScore;
-  const testsCompletedCount = realTestsCompletedCount;
-  const tasksCompletedCount = 0;
-  const pendingCount = Math.max(0, safeTests.length - realTestsCompletedCount);
+  // For Super Admin demo preview account: show realistic populated showcase data
+  // For all other students: show 100% real dynamic data
+  const overallScore = isDemoMaster ? 78 : realOverallScore;
+  const testsCompletedCount = isDemoMaster ? 4 : realTestsCompletedCount;
+  const tasksCompletedCount = isDemoMaster ? 1 : 0;
+  const pendingCount = isDemoMaster ? 2 : Math.max(0, safeTests.length - realTestsCompletedCount);
 
   // Sidebar navigation items
   const navItems = [
@@ -130,6 +135,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             tests={safeTests}
             studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
+            isDemoMaster={isDemoMaster}
             onNavigateToTests={() => setActiveTab('Tests')}
           />
         );
@@ -167,8 +173,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             testsCompletedCount={testsCompletedCount}
             tasksCompletedCount={tasksCompletedCount}
             pendingCount={pendingCount}
-            isDemoMaster={false}
-            demoBenchmarks={[85, 72, 76, 80, 84, 78]}
+            isDemoMaster={isDemoMaster}
+            demoBenchmarks={demoBenchmarks}
             onNavigateToTests={() => setActiveTab('Tests')}
           />
         );
