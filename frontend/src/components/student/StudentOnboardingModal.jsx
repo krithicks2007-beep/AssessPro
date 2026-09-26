@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Phone, Calendar, Hash, Building2, BookOpen, CheckCircle, ArrowRight, ShieldCheck } from 'lucide-react';
+import { User, Phone, Calendar, Hash, Building2, BookOpen, CheckCircle, ArrowRight, ShieldCheck, X } from 'lucide-react';
 import { parseBitEmail, DEPARTMENT_MAP } from '../../utils/studentParser';
 
 export default function StudentOnboardingModal({ isOpen, onClose, user, studentProfile, onProfileSaved }) {
@@ -125,6 +125,7 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
       padding: '1rem'
     }}>
       <div style={{
+        position: 'relative',
         background: '#ffffff',
         borderRadius: '20px',
         width: '100%',
@@ -135,6 +136,29 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
         border: '1px solid #e2e8f0',
         padding: '2rem'
       }}>
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: '1.25rem',
+            right: '1.25rem',
+            background: '#f1f5f9',
+            border: 'none',
+            color: '#64748b',
+            cursor: 'pointer',
+            width: '32px',
+            height: '32px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <X size={18} />
+        </button>
+
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <div style={{
@@ -152,10 +176,10 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
             <ShieldCheck size={28} />
           </div>
           <h2 style={{ fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.35rem' }}>
-            Welcome to AssessPro!
+            Student Profile Details
           </h2>
           <p style={{ fontSize: '0.86rem', color: '#64748b', margin: 0 }}>
-            Complete your verified BIT student profile to personalize your assessment dashboard.
+            Configure your student credentials and institutional details.
           </p>
         </div>
 

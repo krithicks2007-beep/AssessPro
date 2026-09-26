@@ -51,27 +51,39 @@ export default function App() {
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
-    // Get current active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      validateAndSetSession(session);
-    });
+    let isMounted = true;
 
     // Subscribe to auth state updates
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      validateAndSetSession(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setCurrentUser(null);
+        setCurrentRole(null);
+        localStorage.removeItem('assesspro_auth_token');
+        return;
+      }
+      if (session?.user) {
+        validateAndSetSession(session);
+      }
+    });
+
+    // Check current active session on load
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      if (session?.user) {
+        validateAndSetSession(session);
+      }
     });
 
     return () => {
+      isMounted = false;
       subscription?.unsubscribe();
     };
   }, []);
 
   const validateAndSetSession = async (currentSession) => {
     if (!currentSession?.user) {
-      setSession(null);
-      setCurrentUser(null);
-      setCurrentRole(null);
-      localStorage.removeItem('assesspro_auth_token');
       return;
     }
 
@@ -95,11 +107,10 @@ export default function App() {
     setCurrentRole(targetRole);
     setLoadingProfile(false);
 
-    // Check student profile setup
+    // Fetch student profile in background (never blocks or redirects)
     if (targetRole === 'student') {
       try {
         const cleanEmail = email.toLowerCase().trim();
-        const isBitDomain = cleanEmail.endsWith('@bitsathy.ac.in');
         let existingProf = null;
 
         // 1. Try direct Supabase lookup
@@ -108,12 +119,7 @@ export default function App() {
           existingProf = await fetchStudentProfileDirect(supabase, cleanEmail);
         }
 
-        // 2. Try backend API lookup
-        if (!existingProf) {
-          existingProf = await api.getStudentProfile(cleanEmail);
-        }
-
-        // 3. Try cached profile in localStorage
+        // 2. Try cached profile in localStorage
         if (!existingProf) {
           try {
             const cached = localStorage.getItem(`assesspro_student_prof_${cleanEmail}`);
@@ -123,16 +129,9 @@ export default function App() {
 
         if (existingProf) {
           setStudentProfile(existingProf);
-          // If non-BIT student has missing institution or reg_no, open onboarding form
-          if (!isBitDomain && (!existingProf.institution || !existingProf.reg_no || !existingProf.dob)) {
-            setShowOnboarding(true);
-          }
-        } else {
-          // New student: pop open onboarding form
-          setShowOnboarding(true);
         }
       } catch (err) {
-        console.warn('Student profile check error:', err);
+        console.warn('Student profile check note:', err);
       }
     }
   };
