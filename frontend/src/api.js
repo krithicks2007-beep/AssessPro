@@ -73,61 +73,174 @@ export const api = {
 
   // 4. Groups
   async getGroups() {
+    let serverGroups = [];
     try {
       const res = await fetch(`${API_BASE}/groups`);
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data) && data.length > 0) return data;
+        if (Array.isArray(data) && data.length > 0) serverGroups = data;
       }
     } catch (err) {
       console.warn('API getGroups fallback note:', err.message);
     }
-    return [
-      { id: '00000000-0000-0000-0000-000000000001', group_number: 1, name: 'Programming & Logic', category: 'Core Subjects', department: 'Computer Science and Engineering', color: '#1d72fe' },
-      { id: '00000000-0000-0000-0000-000000000002', group_number: 2, name: 'Electronics & Control', category: 'Professional Core', department: 'Computer Science and Engineering', color: '#10b981' },
-      { id: '00000000-0000-0000-0000-000000000003', group_number: 3, name: 'Mechanical & Design', category: 'Specialization Subjects', department: 'Computer Science and Engineering', color: '#8b5cf6' }
-    ];
+
+    if (serverGroups.length === 0) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data, error } = await supabase.from('groups').select('*').order('group_number');
+          if (!error && Array.isArray(data) && data.length > 0) {
+            serverGroups = data;
+          }
+        }
+      } catch (err) {}
+    }
+
+    if (serverGroups.length === 0) {
+      serverGroups = [
+        { id: '00000000-0000-0000-0000-000000000001', group_number: 1, name: 'Programming & Logic', category: 'Core Subjects', department: 'Computer Science and Engineering', color: '#1d72fe' },
+        { id: '00000000-0000-0000-0000-000000000002', group_number: 2, name: 'Electronics & Control', category: 'Professional Core', department: 'Computer Science and Engineering', color: '#10b981' },
+        { id: '00000000-0000-0000-0000-000000000003', group_number: 3, name: 'Mechanical & Design', category: 'Specialization Subjects', department: 'Computer Science and Engineering', color: '#8b5cf6' }
+      ];
+    }
+
+    // Merge custom groups from localStorage
+    try {
+      const stored = localStorage.getItem('assesspro_custom_groups');
+      if (stored) {
+        const customGroups = JSON.parse(stored);
+        if (Array.isArray(customGroups) && customGroups.length > 0) {
+          const map = new Map();
+          serverGroups.forEach(g => map.set(g.id, g));
+          customGroups.forEach(g => map.set(g.id, g));
+          return Array.from(map.values()).sort((a, b) => (a.group_number || 0) - (b.group_number || 0));
+        }
+      }
+    } catch (e) {}
+
+    return serverGroups;
   },
 
   async createGroup(groupData) {
-    const res = await fetch(`${API_BASE}/groups`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(groupData)
-    });
-
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to create group');
+    let created = null;
+    try {
+      const res = await fetch(`${API_BASE}/groups`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(groupData)
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && data.id) created = data;
+      }
+    } catch (err) {
+      console.warn('Backend createGroup fallback note:', err.message);
     }
-    return data;
+
+    if (!created) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data, error } = await supabase.from('groups').insert([groupData]).select();
+          if (data && data[0]) created = data[0];
+        }
+      } catch (err) {}
+    }
+
+    if (!created) {
+      const allGroups = await this.getGroups();
+      const nextNum = allGroups.length + 1;
+      const defaultColors = ['#1d72fe', '#10b981', '#8b5cf6', '#f97316', '#ec4899', '#06b6d4'];
+      created = {
+        id: 'group-' + Date.now(),
+        group_number: nextNum,
+        name: groupData.name || `Group ${nextNum}`,
+        category: groupData.category || 'Specialization Subjects',
+        department: groupData.department || 'Mechatronics Engineering',
+        color: groupData.color || defaultColors[(nextNum - 1) % defaultColors.length]
+      };
+    }
+
+    try {
+      const stored = localStorage.getItem('assesspro_custom_groups');
+      const list = stored ? JSON.parse(stored) : [];
+      list.push(created);
+      localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
+    } catch (e) {}
+
+    return created;
   },
 
   async updateGroupName(id, name) {
-    const res = await fetch(`${API_BASE}/groups/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ name })
-    });
-
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update group');
+    let updated = null;
+    try {
+      const res = await fetch(`${API_BASE}/groups/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && data.id) updated = data;
+      }
+    } catch (err) {
+      console.warn('Backend updateGroupName note:', err.message);
     }
-    return data;
+
+    if (!updated) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data, error } = await supabase.from('groups').update({ name }).eq('id', id).select();
+          if (data && data[0]) updated = data[0];
+        }
+      } catch (err) {}
+    }
+
+    if (!updated) {
+      updated = { id, name };
+    }
+
+    try {
+      const stored = localStorage.getItem('assesspro_custom_groups');
+      let list = stored ? JSON.parse(stored) : [];
+      const idx = list.findIndex(g => g.id === id);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], name };
+      } else {
+        list.push(updated);
+      }
+      localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
+    } catch (e) {}
+
+    return updated;
   },
 
   async deleteGroup(id) {
-    const res = await fetch(`${API_BASE}/groups/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
+    try {
+      await fetch(`${API_BASE}/groups/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+    } catch (e) {}
 
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to delete group');
-    }
-    return data;
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        await supabase.from('groups').delete().eq('id', id);
+      }
+    } catch (e) {}
+
+    try {
+      const stored = localStorage.getItem('assesspro_custom_groups');
+      if (stored) {
+        let list = JSON.parse(stored);
+        list = list.filter(g => g.id !== id);
+        localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
+      }
+    } catch (e) {}
+
+    return true;
   },
 
   // 5. Tests & Assessments
@@ -333,45 +446,164 @@ export const api = {
   },
 
   async submitTest(testId, submissionData) {
-    const res = await fetch(`${API_BASE}/tests/${testId}/submit`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(submissionData)
-    });
-
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to submit test');
+    let submitted = null;
+    try {
+      const res = await fetch(`${API_BASE}/tests/${testId}/submit`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(submissionData)
+      });
+      if (res.ok) {
+        const data = await safeJson(res);
+        if (data && (data.id || data.score !== undefined)) {
+          submitted = data;
+        }
+      }
+    } catch (err) {
+      console.warn('Backend submitTest note:', err.message);
     }
-    return data;
+
+    // Direct Supabase or local calculation fallback
+    if (!submitted) {
+      const studentEmail = submissionData.studentEmail || submissionData.student_email || 'student@bitsathy.ac.in';
+      const studentName = submissionData.studentName || submissionData.student_name || 'Student';
+      
+      let correct = 0;
+      let totalQuestions = 10;
+      let maxScore = 100;
+
+      // Get test details to check answers
+      try {
+        const test = await this.getTestById(testId);
+        if (test && test.questions) {
+          totalQuestions = test.questions.length;
+          maxScore = test.max_score || (totalQuestions * 10);
+          test.questions.forEach((q, idx) => {
+            const ansKey = q.id !== undefined ? q.id : idx;
+            if (submissionData.answers && submissionData.answers[ansKey] === q.correct_index) {
+              correct++;
+            }
+          });
+        }
+      } catch (e) {}
+
+      const score = Math.round(correct * (maxScore / (totalQuestions || 1)));
+      const percentage = Math.round((correct / (totalQuestions || 1)) * 100);
+
+      submitted = {
+        id: 'sub-' + Date.now(),
+        test_id: testId,
+        student_email: studentEmail,
+        student_name: studentName,
+        score: score,
+        max_score: maxScore,
+        percentage: percentage,
+        correct_count: correct,
+        total_questions: totalQuestions,
+        tab_switch_count: submissionData.tabSwitchCount || 0,
+        time_taken_seconds: submissionData.timeTakenSeconds || 0,
+        status: 'completed',
+        submitted_at: new Date().toISOString()
+      };
+
+      // Try inserting into Supabase
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+          if (isValidUUID(testId)) {
+            await supabase.from('test_submissions').insert([{
+              test_id: testId,
+              score: score,
+              max_score: maxScore,
+              status: 'completed'
+            }]);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Persist in localStorage for student & faculty view
+    try {
+      const studentEmail = (submitted.student_email || submissionData.studentEmail || '').toLowerCase();
+      if (studentEmail) {
+        const studentKey = 'assesspro_subs_' + studentEmail;
+        const existingStudentSubs = JSON.parse(localStorage.getItem(studentKey) || '[]');
+        existingStudentSubs.unshift(submitted);
+        localStorage.setItem(studentKey, JSON.stringify(existingStudentSubs));
+      }
+
+      const allKey = 'assesspro_all_submissions';
+      const existingAllSubs = JSON.parse(localStorage.getItem(allKey) || '[]');
+      existingAllSubs.unshift(submitted);
+      localStorage.setItem(allKey, JSON.stringify(existingAllSubs));
+    } catch (e) {}
+
+    return submitted;
   },
 
   async getTestSubmissions(testId) {
+    let list = [];
     try {
       const res = await fetch(`${API_BASE}/tests/${testId}/submissions`, {
         headers: getAuthHeaders()
       });
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data)) list = data;
       }
     } catch (err) {
       console.warn('Fallback submissions note:', err.message);
     }
-    return [];
+
+    // Merge from local storage
+    try {
+      const stored = localStorage.getItem('assesspro_all_submissions');
+      if (stored) {
+        const localSubs = JSON.parse(stored);
+        if (Array.isArray(localSubs)) {
+          const matching = localSubs.filter(s => String(s.test_id) === String(testId));
+          const existingIds = new Set(list.map(s => String(s.id)));
+          matching.forEach(s => {
+            if (!existingIds.has(String(s.id))) list.push(s);
+          });
+        }
+      }
+    } catch (e) {}
+
+    return list;
   },
 
   async getStudentSubmissions(email) {
+    let list = [];
+    const cleanEmail = (email || '').toLowerCase().trim();
     try {
-      const res = await fetch(`${API_BASE}/student/submissions?email=${encodeURIComponent(email || '')}`, {
+      const res = await fetch(`${API_BASE}/student/submissions?email=${encodeURIComponent(cleanEmail)}`, {
         headers: getAuthHeaders()
       });
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data)) list = data;
       }
     } catch (err) {}
-    return [];
+
+    // Merge from localStorage
+    try {
+      if (cleanEmail) {
+        const stored = localStorage.getItem('assesspro_subs_' + cleanEmail);
+        if (stored) {
+          const localSubs = JSON.parse(stored);
+          if (Array.isArray(localSubs)) {
+            const existingIds = new Set(list.map(s => String(s.id)));
+            localSubs.forEach(s => {
+              if (!existingIds.has(String(s.id))) list.push(s);
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    return list;
   },
 
   async getStudentProfile(email) {

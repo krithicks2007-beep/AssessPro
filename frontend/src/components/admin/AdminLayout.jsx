@@ -25,7 +25,8 @@ export default function AdminDashboard({ user, onSignOut }) {
     setLoading(true);
     try {
       const data = await api.getAdminUsers();
-      const mapped = data.map(u => ({
+      const safeData = Array.isArray(data) ? data : [];
+      const mapped = safeData.map(u => ({
         id: u.id,
         name: u.name || u.mailid?.split('@')[0] || 'User',
         email: u.mailid || u.email,
