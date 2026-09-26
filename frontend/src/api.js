@@ -448,11 +448,17 @@ export const api = {
   async submitTest(testId, submissionData) {
     let submitted = null;
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
+
       const res = await fetch(`${API_BASE}/tests/${testId}/submit`, {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify(submissionData)
+        body: JSON.stringify(submissionData),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const data = await safeJson(res);
         if (data && (data.id || data.score !== undefined)) {
@@ -460,7 +466,7 @@ export const api = {
         }
       }
     } catch (err) {
-      console.warn('Backend submitTest note:', err.message);
+      console.warn('Backend submitTest note (proceeding with local sync):', err.message);
     }
 
     // Direct Supabase or local calculation fallback
@@ -468,27 +474,11 @@ export const api = {
       const studentEmail = submissionData.studentEmail || submissionData.student_email || 'student@bitsathy.ac.in';
       const studentName = submissionData.studentName || submissionData.student_name || 'Student';
       
-      let correct = 0;
-      let totalQuestions = 10;
-      let maxScore = 100;
-
-      // Get test details to check answers
-      try {
-        const test = await this.getTestById(testId);
-        if (test && test.questions) {
-          totalQuestions = test.questions.length;
-          maxScore = test.max_score || (totalQuestions * 10);
-          test.questions.forEach((q, idx) => {
-            const ansKey = q.id !== undefined ? q.id : idx;
-            if (submissionData.answers && submissionData.answers[ansKey] === q.correct_index) {
-              correct++;
-            }
-          });
-        }
-      } catch (e) {}
-
-      const score = Math.round(correct * (maxScore / (totalQuestions || 1)));
-      const percentage = Math.round((correct / (totalQuestions || 1)) * 100);
+      const score = submissionData.score !== undefined ? submissionData.score : 0;
+      const maxScore = submissionData.max_score !== undefined ? submissionData.max_score : 100;
+      const percentage = submissionData.percentage !== undefined ? submissionData.percentage : Math.round((score / (maxScore || 1)) * 100);
+      const totalQuestions = submissionData.total_questions || 10;
+      const correctCount = submissionData.correct_count || 0;
 
       submitted = {
         id: 'sub-' + Date.now(),

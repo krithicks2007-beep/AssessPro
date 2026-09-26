@@ -177,45 +177,67 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
     if (submitting) return;
     setSubmitting(true);
     clearInterval(timerRef.current);
-    await exitFullscreenMode();
+    try {
+      exitFullscreenMode();
+    } catch (e) {}
 
     const timeSpent = Math.max(1, Math.round(((test.duration_minutes || 30) * 60) - timeLeftSeconds));
 
-    try {
-      const result = await api.submitTest(test.id, {
-        studentName: student?.user_metadata?.full_name || student?.email?.split('@')[0] || 'Student',
-        studentEmail: student?.email || 'student@bitsathy.ac.in',
-        answers: answers,
-        tabSwitchCount: tabSwitchCount,
-        timeTakenSeconds: timeSpent,
-        joined_late_seconds: Math.max(0, Math.floor((Date.now() - new Date(test.start_time || Date.now()).getTime()) / 1000) - timeSpent)
-      });
+    // 1. Instant accurate client-side score computation
+    let correct = 0;
+    const totalQ = questions.length || 1;
+    const maxScore = test.max_score || (totalQ * 10);
+    const pointsPerQ = maxScore / totalQ;
+    let earnedScore = 0;
 
-      setSubmissionResult(result);
-      setStage('COMPLETED');
-      if (onTestCompleted) {
-        onTestCompleted(result);
+    questions.forEach((q, idx) => {
+      const studentAns = answers[q.id] !== undefined ? answers[q.id] : answers[idx];
+      if (studentAns !== undefined && Number(studentAns) === Number(q.correct_index)) {
+        correct++;
+        earnedScore += (q.marks || pointsPerQ);
       }
-    } catch (err) {
-      console.error('Submission error:', err);
-      // Fallback calculation for display
-      let correct = 0;
-      questions.forEach((q, idx) => {
-        if (answers[q.id ?? idx] === q.correct_index) correct++;
-      });
-      const pct = Math.round((correct / questions.length) * 100);
-      setSubmissionResult({
-        score: correct * 10,
-        max_score: questions.length * 10,
-        percentage: pct,
-        correct_count: correct,
-        total_questions: questions.length,
-        tab_switch_count: tabSwitchCount
-      });
-      setStage('COMPLETED');
-    } finally {
-      setSubmitting(false);
+    });
+
+    const finalScore = Math.round(earnedScore);
+    const finalPercentage = Math.round((finalScore / maxScore) * 100);
+
+    const submissionPayload = {
+      id: 'sub-' + Date.now(),
+      test_id: test.id,
+      test_title: test.title,
+      student_name: student?.user_metadata?.full_name || student?.email?.split('@')[0] || 'Student',
+      student_email: student?.email || 'student@bitsathy.ac.in',
+      score: finalScore,
+      max_score: maxScore,
+      percentage: finalPercentage,
+      correct_count: correct,
+      total_questions: totalQ,
+      tab_switch_count: tabSwitchCount,
+      time_taken_seconds: timeSpent,
+      answers: answers,
+      status: 'completed',
+      submitted_at: new Date().toISOString()
+    };
+
+    // 2. Transition immediately to COMPLETED stage with results (0ms delay)
+    setSubmissionResult(submissionPayload);
+    setStage('COMPLETED');
+    setSubmitting(false);
+
+    if (onTestCompleted) {
+      onTestCompleted(submissionPayload);
     }
+
+    // 3. Sync to Backend & Supabase asynchronously in background without blocking UI
+    api.submitTest(test.id, {
+      ...submissionPayload,
+      studentName: submissionPayload.student_name,
+      studentEmail: submissionPayload.student_email,
+      tabSwitchCount: tabSwitchCount,
+      timeTakenSeconds: timeSpent
+    }).catch(err => {
+      console.warn('Background submission sync note:', err.message);
+    });
   };
 
   // Format MM:SS
