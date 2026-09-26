@@ -98,9 +98,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
     : 0;
 
-  const overallScore = realOverallScore > 0 ? realOverallScore : 78;
-  const testsCompletedCount = realTestsCompletedCount > 0 ? realTestsCompletedCount : 4;
-  const tasksCompletedCount = 1;
+  const overallScore = realOverallScore;
+  const testsCompletedCount = realTestsCompletedCount;
+  const tasksCompletedCount = 0;
   const pendingCount = Math.max(0, safeTests.length - realTestsCompletedCount);
 
   // Sidebar navigation items
