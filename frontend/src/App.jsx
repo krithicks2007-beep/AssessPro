@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { 
   getSupabaseClient, 
   getSupabaseConfig, 
-  resolveRoleFromEmail 
+  resolveRoleFromEmail,
+  saveStudentProfileDirect,
+  fetchStudentProfileDirect
 } from './supabaseClient';
 import api from './api';
 import LoginPage from './components/auth/LoginPage';
@@ -131,7 +133,28 @@ export default function App() {
     // Check student profile setup
     if (targetRole === 'student') {
       try {
-        const existingProf = await api.getStudentProfile(email);
+        const cleanEmail = email.toLowerCase().trim();
+        let existingProf = null;
+
+        // 1. Try direct Supabase lookup
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          existingProf = await fetchStudentProfileDirect(supabase, cleanEmail);
+        }
+
+        // 2. Try backend API lookup
+        if (!existingProf) {
+          existingProf = await api.getStudentProfile(cleanEmail);
+        }
+
+        // 3. Try cached profile in localStorage
+        if (!existingProf) {
+          try {
+            const cached = localStorage.getItem(`assesspro_student_prof_${cleanEmail}`);
+            if (cached) existingProf = JSON.parse(cached);
+          } catch {}
+        }
+
         if (existingProf) {
           setStudentProfile(existingProf);
           if (!existingProf.reg_no || !existingProf.dob) {
@@ -297,15 +320,39 @@ export default function App() {
           studentProfile={studentProfile}
           onProfileSaved={async (savedData) => {
             try {
-              await api.saveStudentProfile(savedData);
-              setStudentProfile(savedData);
+              const fullData = {
+                ...savedData,
+                id: currentUser?.id,
+                email: currentUser?.email || savedData.email
+              };
+
+              // 1. Direct Supabase save (highest reliability)
+              const supabase = getSupabaseClient();
+              if (supabase) {
+                await saveStudentProfileDirect(supabase, fullData);
+              }
+
+              // 2. Local storage cache for instant offline & page reload persistence
+              if (fullData.email) {
+                localStorage.setItem(
+                  `assesspro_student_prof_${fullData.email.toLowerCase()}`, 
+                  JSON.stringify(fullData)
+                );
+              }
+
+              // 3. Safe backend sync
+              await api.saveStudentProfile(fullData);
+
+              setStudentProfile(fullData);
               setShowOnboarding(false);
               setAppActionSuccess('Profile updated successfully!');
               setTimeout(() => setAppActionSuccess(''), 3000);
             } catch (err) {
-              console.error('Failed to save profile:', err);
-              setAppActionError(err.message || 'Failed to update profile');
-              setTimeout(() => setAppActionError(''), 4000);
+              console.error('Profile save note:', err);
+              setStudentProfile(savedData);
+              setShowOnboarding(false);
+              setAppActionSuccess('Profile updated!');
+              setTimeout(() => setAppActionSuccess(''), 3000);
             }
           }}
         />

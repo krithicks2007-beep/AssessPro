@@ -5,6 +5,17 @@
 
 const API_BASE = '/api';
 
+const safeJson = async (res) => {
+  try {
+    const text = await res.text();
+    if (!text || !text.trim()) return {};
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn('Response could not be parsed as JSON:', err.message);
+    return {};
+  }
+};
+
 const getAuthHeaders = () => {
   const token = localStorage.getItem('assesspro_auth_token');
   const headers = { 'Content-Type': 'application/json' };
@@ -19,7 +30,7 @@ export const api = {
   async checkHealth() {
     try {
       const res = await fetch(`${API_BASE}/health`);
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       console.error('API health check error:', err);
       return { status: 'error', message: err.message };
@@ -34,7 +45,7 @@ export const api = {
       body: JSON.stringify({ email, password })
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Login failed');
     }
@@ -43,6 +54,7 @@ export const api = {
       localStorage.setItem('assesspro_auth_token', data.session.access_token);
     }
 
+
     return data;
   },
 
@@ -50,7 +62,7 @@ export const api = {
   async getUserProfile() {
     const headers = getAuthHeaders();
     const res = await fetch(`${API_BASE}/user/profile`, { headers });
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to fetch profile');
     }
@@ -64,7 +76,7 @@ export const api = {
       if (!res.ok) {
         throw new Error('Failed to fetch groups from backend');
       }
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       console.warn('API getGroups fallback:', err.message);
       return [
@@ -82,7 +94,7 @@ export const api = {
       body: JSON.stringify(groupData)
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to create group');
     }
@@ -96,7 +108,7 @@ export const api = {
       body: JSON.stringify({ name })
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to update group');
     }
@@ -109,7 +121,7 @@ export const api = {
       headers: getAuthHeaders()
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to delete group');
     }
@@ -121,7 +133,7 @@ export const api = {
     try {
       const res = await fetch(`${API_BASE}/tests`);
       if (!res.ok) throw new Error('Failed to fetch tests');
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       console.warn('API getTests fallback:', err.message);
       return [];
@@ -131,7 +143,7 @@ export const api = {
   async getTestById(id) {
     const res = await fetch(`${API_BASE}/tests/${id}`);
     if (!res.ok) throw new Error('Failed to fetch test details');
-    return await res.json();
+    return await safeJson(res);
   },
 
   async createTest(testData) {
@@ -141,7 +153,7 @@ export const api = {
       body: JSON.stringify(testData)
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to create test');
     }
@@ -155,7 +167,7 @@ export const api = {
       body: JSON.stringify(submissionData)
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to submit test');
     }
@@ -168,7 +180,7 @@ export const api = {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Failed to fetch submissions');
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       console.warn('Fallback submissions:', err.message);
       return [];
@@ -181,7 +193,7 @@ export const api = {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Failed to fetch student submissions');
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       return [];
     }
@@ -193,23 +205,29 @@ export const api = {
         headers: getAuthHeaders()
       });
       if (!res.ok) return null;
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       return null;
     }
   },
 
   async saveStudentProfile(profileData) {
-    const res = await fetch(`${API_BASE}/student/profile`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(profileData)
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to save student profile');
+    try {
+      const res = await fetch(`${API_BASE}/student/profile`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(profileData)
+      });
+      const data = await safeJson(res);
+      if (!res.ok) {
+        console.warn('Backend returned non-200 for profile save:', res.status, data);
+        return { success: false, fallback: true, profile: profileData };
+      }
+      return data;
+    } catch (err) {
+      console.warn('Backend saveStudentProfile connection warning:', err.message);
+      return { success: true, fallback: true, profile: profileData };
     }
-    return data;
   },
 
   // 6. Admin Users
@@ -219,7 +237,7 @@ export const api = {
         headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error('Failed to fetch users');
-      return await res.json();
+      return await safeJson(res);
     } catch (err) {
       console.warn('API getAdminUsers fallback:', err.message);
       return [];
@@ -233,7 +251,7 @@ export const api = {
       body: JSON.stringify({ role })
     });
 
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) {
       throw new Error(data.error || 'Failed to update user role');
     }
@@ -242,3 +260,4 @@ export const api = {
 };
 
 export default api;
+

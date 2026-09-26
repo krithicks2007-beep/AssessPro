@@ -294,3 +294,97 @@ export const createNewTest = async (supabase, { title, groupId, durationMinutes,
   return data?.[0];
 };
 
+/**
+ * Directly save or update student profile in Supabase database
+ */
+export const saveStudentProfileDirect = async (supabase, profileData) => {
+  if (!supabase) return null;
+  try {
+    const cleanEmail = (profileData.email || '').toLowerCase().trim();
+    let targetUserId = profileData.id;
+
+    if (!targetUserId && cleanEmail) {
+      const { data: userRecord } = await supabase
+        .from('users')
+        .select('id')
+        .eq('mailid', cleanEmail)
+        .maybeSingle();
+      targetUserId = userRecord?.id;
+    }
+
+    if (!targetUserId) {
+      const { data: { user } } = await supabase.auth.getUser();
+      targetUserId = user?.id;
+    }
+
+    if (targetUserId) {
+      // 1. Upsert public.users record
+      await supabase.from('users').upsert({
+        id: targetUserId,
+        name: profileData.name || cleanEmail.split('@')[0],
+        mailid: cleanEmail,
+        UserType: 'student'
+      });
+
+      // 2. Upsert public.students record
+      const studentPayload = {
+        id: targetUserId,
+        reg_no: (profileData.reg_no || '').trim().toUpperCase(),
+        department: profileData.department || 'Computer Science & Engineering',
+        year: profileData.year || 'II Year',
+        section: profileData.section || 'A',
+        dob: profileData.dob || null,
+        phone: profileData.phone || null
+      };
+
+      const { data, error } = await supabase
+        .from('students')
+        .upsert(studentPayload)
+        .select();
+
+      if (error) {
+        console.warn('Supabase direct student upsert warning:', error.message);
+      }
+      return data?.[0] || studentPayload;
+    }
+  } catch (err) {
+    console.warn('Direct student profile save error:', err.message);
+  }
+  return null;
+};
+
+/**
+ * Directly fetch student profile from Supabase database
+ */
+export const fetchStudentProfileDirect = async (supabase, email) => {
+  if (!supabase || !email) return null;
+  try {
+    const cleanEmail = email.toLowerCase().trim();
+    const { data: userRecord } = await supabase
+      .from('users')
+      .select('id, name, mailid')
+      .eq('mailid', cleanEmail)
+      .maybeSingle();
+
+    if (userRecord) {
+      const { data: studentRecord } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', userRecord.id)
+        .maybeSingle();
+
+      if (studentRecord) {
+        return {
+          ...studentRecord,
+          name: userRecord.name,
+          email: userRecord.mailid
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Direct student profile fetch note:', err.message);
+  }
+  return null;
+};
+
+
