@@ -100,16 +100,11 @@ DECLARE
     user_email TEXT := LOWER(NEW.email);
     full_name TEXT := COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1));
 BEGIN
-    -- Strict Domain Restriction: Reject any account outside bitsathy.ac.in (except whitelisted student)
-    IF user_email NOT LIKE '%@bitsathy.ac.in' AND user_email <> 'bitsenthil@gmail.com' THEN
-        RAISE EXCEPTION 'Access Denied: Only institutional @bitsathy.ac.in email addresses are authorized to sign in. (%) is rejected.', user_email;
-    END IF;
-
-    -- Determine role from email format or metadata
-    IF user_email = 'bitsenthil@gmail.com' THEN
-        detected_type := 'student';
-    ELSIF user_email LIKE '%admin%' THEN
+    -- Determine role: krithickrajs is master admin, non-BIT emails are students, BIT emails follow institutional logic
+    IF user_email = 'krithickrajs.cs25@bitsathy.ac.in' OR user_email LIKE '%admin%' THEN
         detected_type := 'admin';
+    ELSIF user_email NOT LIKE '%@bitsathy.ac.in' THEN
+        detected_type := 'student';
     ELSIF user_email ~ '\.[a-z]{2,3}\d{2}@bitsathy\.ac\.in$' THEN
         detected_type := 'student';
     ELSE
@@ -132,10 +127,10 @@ BEGIN
         INSERT INTO public.students (id, reg_no, department, year, section)
         VALUES (
             NEW.id, 
-            '7376' || SUBSTRING(MD5(NEW.id::text) FROM 1 FOR 6), 
-            'Mechatronics Engineering', 
-            'III Year', 
-            'A'
+            CASE WHEN user_email LIKE '%@bitsathy.ac.in' THEN '7376' || SUBSTRING(MD5(NEW.id::text) FROM 1 FOR 6) ELSE '' END, 
+            CASE WHEN user_email LIKE '%@bitsathy.ac.in' THEN 'Computer Science and Engineering' ELSE '' END, 
+            CASE WHEN user_email LIKE '%@bitsathy.ac.in' THEN 'II Year (Second Year)' ELSE '' END, 
+            CASE WHEN user_email LIKE '%@bitsathy.ac.in' THEN 'A' ELSE '' END
         )
         ON CONFLICT (id) DO NOTHING;
     ELSIF detected_type = 'staff' THEN

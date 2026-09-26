@@ -6,13 +6,24 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
   if (!isOpen) return null;
 
   const email = user?.email || '';
-  const parsed = parseBitEmail(email);
+  const isBitDomain = email.toLowerCase().endsWith('@bitsathy.ac.in');
+  const parsed = isBitDomain ? parseBitEmail(email) : null;
 
-  const [name, setName] = useState(studentProfile?.full_name || user?.user_metadata?.full_name || parsed?.formattedName || '');
-  const [regNo, setRegNo] = useState(studentProfile?.reg_no || parsed?.predictedRegNo || '');
-  const [department, setDepartment] = useState(parsed?.department || 'Computer Science and Engineering');
-  const [year, setYear] = useState(parsed?.academicYear || 'II Year (Second Year)');
-  const [dob, setDob] = useState(studentProfile?.dob || '2005-06-15');
+  const [institution, setInstitution] = useState(
+    studentProfile?.institution || (isBitDomain ? 'Bannari Amman Institute of Technology' : '')
+  );
+  const [name, setName] = useState(
+    studentProfile?.name || studentProfile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || parsed?.formattedName || ''
+  );
+  const [regNo, setRegNo] = useState(studentProfile?.reg_no || (isBitDomain ? parsed?.predictedRegNo : '') || '');
+  const [department, setDepartment] = useState(
+    studentProfile?.department || (isBitDomain ? (parsed?.department || 'Computer Science and Engineering') : '') || ''
+  );
+  const [year, setYear] = useState(
+    studentProfile?.year || (isBitDomain ? (parsed?.academicYear || 'II Year (Second Year)') : '') || ''
+  );
+  const [section, setSection] = useState(studentProfile?.section || (isBitDomain ? 'A' : '') || '');
+  const [dob, setDob] = useState(studentProfile?.dob || '');
   const [phone, setPhone] = useState(studentProfile?.phone || '');
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -21,13 +32,19 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
   useEffect(() => {
     if (isOpen) {
       if (studentProfile) {
+        setInstitution(studentProfile.institution || (isBitDomain ? 'Bannari Amman Institute of Technology' : ''));
         setName(studentProfile.full_name || studentProfile.name || name);
         setRegNo(studentProfile.reg_no || regNo);
+        setDepartment(studentProfile.department || department || (isBitDomain ? 'Computer Science and Engineering' : ''));
+        setYear(studentProfile.year || year || (isBitDomain ? 'II Year (Second Year)' : ''));
+        setSection(studentProfile.section || section || (isBitDomain ? 'A' : ''));
         setDob(studentProfile.dob || dob);
         setPhone(studentProfile.phone || phone);
+      } else {
+        setInstitution(isBitDomain ? 'Bannari Amman Institute of Technology' : '');
+        setDepartment(isBitDomain ? (parsed?.department || 'Computer Science and Engineering') : '');
+        setYear(isBitDomain ? (parsed?.academicYear || 'II Year (Second Year)') : '');
       }
-      setDepartment(parsed?.department || 'Computer Science and Engineering');
-      setYear(parsed?.academicYear || 'II Year (Second Year)');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, studentProfile]);
@@ -36,8 +53,24 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
     e.preventDefault();
     setErrorMsg('');
 
+    if (!isBitDomain && !institution.trim()) {
+      setErrorMsg('Institution name is required.');
+      return;
+    }
+    if (!name.trim()) {
+      setErrorMsg('Full Name is required.');
+      return;
+    }
     if (!regNo.trim()) {
-      setErrorMsg('Register Number is required (e.g. 7376251CS101).');
+      setErrorMsg('Register Number or Student ID is required.');
+      return;
+    }
+    if (!department.trim()) {
+      setErrorMsg('Department is required.');
+      return;
+    }
+    if (!year.trim()) {
+      setErrorMsg('Academic Year is required.');
       return;
     }
     if (!dob) {
@@ -53,11 +86,13 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
     try {
       const profileData = {
         id: user?.id,
-        name,
+        name: name.trim(),
         email,
+        institution: isBitDomain ? 'Bannari Amman Institute of Technology' : institution.trim(),
         reg_no: regNo.trim().toUpperCase(),
-        department,
-        year,
+        department: department.trim(),
+        year: year.trim(),
+        section: section.trim() || 'A',
         dob,
         phone: phone.trim()
       };
@@ -151,14 +186,49 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
             justifyContent: 'space-between',
             fontSize: '0.82rem'
           }}>
-            <span style={{ color: '#64748b', fontWeight: 600 }}>Institutional Mail ID:</span>
+            <span style={{ color: '#64748b', fontWeight: 600 }}>Authenticated Email:</span>
             <span style={{ color: '#1d72fe', fontWeight: 700 }}>{email}</span>
+          </div>
+
+          {/* Institution Field */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+              Institution / College Name <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                value={institution}
+                onChange={(e) => setInstitution(e.target.value)}
+                disabled={isBitDomain}
+                required
+                placeholder="e.g. Bannari Amman Institute of Technology"
+                style={{
+                  width: '100%',
+                  padding: '0.65rem 0.85rem 0.65rem 2.2rem',
+                  borderRadius: '10px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.88rem',
+                  background: isBitDomain ? '#f8fafc' : '#ffffff',
+                  color: isBitDomain ? '#166534' : '#1e293b',
+                  fontWeight: isBitDomain ? 700 : 500,
+                  outline: 'none',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <Building2 size={16} color={isBitDomain ? '#16a34a' : '#94a3b8'} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
+            </div>
+            {isBitDomain && (
+              <span style={{ fontSize: '0.74rem', color: '#16a34a', fontWeight: 600, marginTop: '2px', display: 'block' }}>
+                ✓ Official Institutional Affiliation (@bitsathy.ac.in)
+              </span>
+            )}
           </div>
 
           {/* Full Name */}
           <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-              Full Name
+              Full Name <span style={{ color: '#ef4444' }}>*</span>
             </label>
             <div style={{ position: 'relative' }}>
               <input
@@ -166,7 +236,7 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                placeholder="Krithick Raj S"
+                placeholder="Enter your full name"
                 style={{
                   width: '100%',
                   padding: '0.65rem 0.85rem 0.65rem 2.2rem',
@@ -182,20 +252,46 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
           </div>
 
           {/* Register Number */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-              Register Number <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <div style={{ position: 'relative' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '0.75rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                Register Number / Roll ID <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  value={regNo}
+                  onChange={(e) => setRegNo(e.target.value)}
+                  required
+                  placeholder="e.g. 7376251CS101"
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem 0.65rem 2.2rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.88rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <Hash size={16} color="#94a3b8" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
+                Section
+              </label>
               <input
                 type="text"
-                value={regNo}
-                onChange={(e) => setRegNo(e.target.value)}
-                required
-                placeholder="e.g. 7376251CS101"
+                value={section}
+                onChange={(e) => setSection(e.target.value)}
+                placeholder="A / B / C"
                 style={{
                   width: '100%',
-                  padding: '0.65rem 0.85rem 0.65rem 2.2rem',
+                  padding: '0.65rem 0.85rem',
                   borderRadius: '10px',
                   border: '1px solid #cbd5e1',
                   fontSize: '0.88rem',
@@ -205,64 +301,84 @@ export default function StudentOnboardingModal({ isOpen, onClose, user, studentP
                   boxSizing: 'border-box'
                 }}
               />
-              <Hash size={16} color="#94a3b8" style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)' }} />
             </div>
           </div>
 
-          {/* Department & Year (Auto-detected from email) */}
+          {/* Department & Year */}
           <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '0.75rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                Department (Auto-Predicted)
+                Department <span style={{ color: '#ef4444' }}>*</span>
               </label>
-              <select
-                value={department}
-                disabled
-                style={{
-                  width: '100%',
-                  padding: '0.65rem 0.85rem',
-                  borderRadius: '10px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '0.84rem',
-                  background: '#f1f5f9',
-                  color: '#475569',
-                  cursor: 'not-allowed',
-                  outline: 'none',
-                  boxSizing: 'border-box'
-                }}
-              >
-                {Object.entries(DEPARTMENT_MAP).map(([code, name]) => (
-                  <option key={code} value={name}>
-                    {name} ({code.toUpperCase()})
-                  </option>
-                ))}
-              </select>
+              {isBitDomain ? (
+                <select
+                  value={department}
+                  disabled
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.84rem',
+                    background: '#f1f5f9',
+                    color: '#475569',
+                    cursor: 'not-allowed',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                >
+                  {Object.entries(DEPARTMENT_MAP).map(([code, name]) => (
+                    <option key={code} value={name}>
+                      {name} ({code.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  required
+                  placeholder="e.g. Computer Science"
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.86rem',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              )}
             </div>
 
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '0.35rem' }}>
-                Academic Year
+                Academic Year <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <select
                 value={year}
-                disabled
+                onChange={(e) => setYear(e.target.value)}
+                disabled={isBitDomain}
                 style={{
                   width: '100%',
                   padding: '0.65rem 0.85rem',
                   borderRadius: '10px',
                   border: '1px solid #cbd5e1',
                   fontSize: '0.84rem',
-                  background: '#f1f5f9',
-                  color: '#475569',
-                  cursor: 'not-allowed',
+                  background: isBitDomain ? '#f1f5f9' : '#ffffff',
+                  color: isBitDomain ? '#475569' : '#0f172a',
+                  cursor: isBitDomain ? 'not-allowed' : 'pointer',
                   outline: 'none',
                   boxSizing: 'border-box'
                 }}
               >
-                <option value="I Year (First Year)">I Year (First Year - 26)</option>
-                <option value="II Year (Second Year)">II Year (Second Year - 25)</option>
-                <option value="III Year (Third Year)">III Year (Third Year - 24)</option>
-                <option value="IV Year (Final Year)">IV Year (Final Year - 23)</option>
+                <option value="">Select Year</option>
+                <option value="I Year (First Year)">I Year (First Year)</option>
+                <option value="II Year (Second Year)">II Year (Second Year)</option>
+                <option value="III Year (Third Year)">III Year (Third Year)</option>
+                <option value="IV Year (Final Year)">IV Year (Final Year)</option>
               </select>
             </div>
           </div>

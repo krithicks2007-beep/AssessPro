@@ -72,13 +72,7 @@ export const signInWithEmailPassword = async (supabase, email, password) => {
     throw new Error('Supabase client is not configured.');
   }
 
-  const { allowedDomain } = getSupabaseConfig();
   const cleanEmail = email.trim().toLowerCase();
-
-  // Validate domain restriction (allow bitsathy.ac.in or whitelisted student)
-  if (!cleanEmail.endsWith(`@${allowedDomain.toLowerCase()}`) && cleanEmail !== 'bitsenthil@gmail.com') {
-    throw new Error(`Only official @${allowedDomain} email addresses are allowed to sign in.`);
-  }
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: cleanEmail,
@@ -96,7 +90,8 @@ export const resolveRoleFromEmail = (email = '') => {
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
   }
-  if (cleanEmail === 'bitsenthil@gmail.com') {
+  // External email domains (e.g., @gmail.com) default to student
+  if (!cleanEmail.endsWith('@bitsathy.ac.in')) {
     return 'student';
   }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {

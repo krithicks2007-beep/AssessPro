@@ -36,31 +36,21 @@ export const DEPARTMENT_MAP = {
 export const parseBitEmail = (email = '') => {
   if (!email) return null;
   const clean = email.trim().toLowerCase();
-
-  if (clean === 'bitsenthil@gmail.com') {
-    return {
-      isStudent: true,
-      name: 'Senthil',
-      formattedName: 'SENTHIL',
-      deptCode: 'cs',
-      department: 'Computer Science and Engineering',
-      batchNum: '25',
-      academicYear: 'II Year (Second Year)',
-      predictedRegNo: '7376251CS999'
-    };
-  }
+  const isBitDomain = clean.endsWith('@bitsathy.ac.in');
 
   const match = clean.match(/^([a-z0-9._]+)\.([a-z]{2,3})(\d{2})@bitsathy\.ac\.in$/i);
 
   if (!match) {
     return {
-      isStudent: false,
+      isStudent: !isBitDomain || clean.includes('.cs') || clean.includes('.it'),
       name: clean.split('@')[0],
+      formattedName: clean.split('@')[0].toUpperCase(),
       deptCode: '',
-      department: 'Faculty / Administration',
+      department: isBitDomain ? 'Faculty / Administration' : '',
       batchNum: '',
-      academicYear: 'Staff',
-      predictedRegNo: ''
+      academicYear: isBitDomain ? 'Staff' : '',
+      predictedRegNo: '',
+      institution: isBitDomain ? 'Bannari Amman Institute of Technology' : ''
     };
   }
 
@@ -70,35 +60,26 @@ export const parseBitEmail = (email = '') => {
 
   const department = DEPARTMENT_MAP[deptCode] || `${deptCode.toUpperCase()} Engineering`;
 
-  // Academic year based on batch number:
-  // 26 -> I Year (First Year)
-  // 25 -> II Year (Second Year)
-  // 24 -> III Year (Third Year)
-  // 23 -> IV Year (Final Year)
   let academicYear = 'II Year';
   if (batchNum === '26') academicYear = 'I Year (First Year)';
   else if (batchNum === '25') academicYear = 'II Year (Second Year)';
   else if (batchNum === '24') academicYear = 'III Year (Third Year)';
   else if (batchNum === '23') academicYear = 'IV Year (Final Year)';
-  else academicYear = `Batch 20${batchNum}`;
-
-  // Format capitalized name from email prefix
-  const formattedName = rawName
-    .replace(/[._]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    .trim();
 
   return {
     isStudent: true,
-    rawName,
-    formattedName,
+    name: rawName,
+    formattedName: rawName.toUpperCase().replace(/\./g, ' '),
     deptCode,
     department,
     batchNum,
     academicYear,
-    predictedRegNo: `7376${batchNum}1${deptCode.toUpperCase()}101`
+    predictedRegNo: `7376${batchNum}1${deptCode.toUpperCase()}101`,
+    institution: 'Bannari Amman Institute of Technology'
   };
 };
+
+
 
 /**
  * Master Admin Email: krithickrajs.cs25@bitsathy.ac.in

@@ -193,6 +193,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             overallScore={overallScore}
             testsCompletedCount={testsCompletedCount}
             onRequestEditProfile={onRequestEditProfile}
+            institution={studentProfile?.institution}
           />
         );
       case 'Dashboard':

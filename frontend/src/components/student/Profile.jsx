@@ -24,8 +24,12 @@ export default function Profile({
   parsed,
   overallScore,
   testsCompletedCount,
-  onRequestEditProfile
+  onRequestEditProfile,
+  institution
 }) {
+  const isBitEmail = (email || '').toLowerCase().endsWith('@bitsathy.ac.in');
+  const institutionName = isBitEmail ? 'Bannari Amman Institute of Technology' : (institution || parsed?.institution || 'External Institution');
+
   return (
     <div className="dashboard-content">
       <div style={{
@@ -152,20 +156,20 @@ export default function Profile({
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', fontSize: '0.85rem' }}>
             <div>
-              <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>BIT Institutional Mail</span>
+              <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>{isBitEmail ? 'BIT Institutional Mail' : 'Student Mail ID'}</span>
               <strong style={{ color: '#1e293b' }}>{email}</strong>
             </div>
             <div>
-              <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Register Number</span>
-              <strong style={{ color: '#1e293b' }}>{studentRegNo}</strong>
+              <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Register Number / Roll ID</span>
+              <strong style={{ color: '#1e293b' }}>{studentRegNo || 'Not specified'}</strong>
             </div>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Date of Birth</span>
-              <strong style={{ color: '#1e293b' }}>{studentDob}</strong>
+              <strong style={{ color: '#1e293b' }}>{studentDob || 'Not specified'}</strong>
             </div>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Phone / Mobile</span>
-              <strong style={{ color: '#1e293b' }}>{studentPhone}</strong>
+              <strong style={{ color: '#1e293b' }}>{studentPhone || 'Not specified'}</strong>
             </div>
           </div>
         </div>
@@ -187,7 +191,7 @@ export default function Profile({
             </div>
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Institution</span>
-              <strong style={{ color: '#1e293b' }}>Bannari Amman Institute of Technology</strong>
+              <strong style={{ color: '#1e293b' }}>{institutionName}</strong>
             </div>
           </div>
         </div>

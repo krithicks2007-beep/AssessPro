@@ -27,7 +27,7 @@ const resolveRoleFromEmail = (email = '') => {
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
   }
-  if (cleanEmail === 'bitsenthil@gmail.com') {
+  if (!cleanEmail.endsWith('@bitsathy.ac.in')) {
     return 'student';
   }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
@@ -40,7 +40,7 @@ const resolveRoleFromEmail = (email = '') => {
   return 'staff';
 };
 
-// Authentication & Institutional Domain Verification Middleware
+// Authentication Middleware
 const verifyAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -58,13 +58,6 @@ const verifyAuth = async (req, res, next) => {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) {
       return res.status(401).json({ error: 'Invalid or expired session token' });
-    }
-
-    const email = (user.email || '').toLowerCase().trim();
-    if (!email.endsWith(`@${ALLOWED_DOMAIN}`) && email !== 'bitsenthil@gmail.com') {
-      return res.status(403).json({
-        error: `Access Denied: Only official @${ALLOWED_DOMAIN} accounts are authorized.`
-      });
     }
 
     req.user = user;
@@ -97,11 +90,6 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== 'bitsenthil@gmail.com') {
-    return res.status(403).json({
-      error: `Access Restricted: Only @${ALLOWED_DOMAIN} institutional accounts are allowed.`
-    });
-  }
 
   if (!supabase) {
     return res.status(503).json({ error: 'Backend database is not initialized' });

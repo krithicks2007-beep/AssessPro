@@ -75,38 +75,6 @@ export default function App() {
       return;
     }
 
-    const user = currentSession.user;
-    const email = (user.email || '').toLowerCase().trim();
-    const cleanDomain = (allowedDomain || 'bitsathy.ac.in').toLowerCase().trim();
-
-    // Strict Domain Validation for @bitsathy.ac.in (or whitelisted student account)
-    const isWhitelisted = email === 'bitsenthil@gmail.com';
-    if (!email.endsWith(`@${cleanDomain}`) && !isWhitelisted) {
-      console.warn(`[Security Alert] Rejected non-institutional account: ${email}`);
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        try {
-          await supabase.auth.signOut();
-        } catch (e) {
-          console.error('Signout error:', e);
-        }
-      }
-      localStorage.removeItem('assesspro_auth_token');
-      
-      // Wipe OAuth hash tokens from browser bar so it won't loop
-      if (window.location.hash) {
-        window.history.replaceState(null, '', window.location.pathname);
-      }
-
-      setAuthError(
-        `Access Denied: The account "${email}" is not authorized. You must sign in using your official institutional @${cleanDomain} account.`
-      );
-      setSession(null);
-      setCurrentUser(null);
-      setCurrentRole(null);
-      return;
-    }
-
     // Save auth token for backend API requests
     if (currentSession.access_token) {
       localStorage.setItem('assesspro_auth_token', currentSession.access_token);
@@ -116,23 +84,11 @@ export default function App() {
     setSession(currentSession);
     setCurrentUser(user);
 
-    // Fetch verified profile & role from Backend API
-    setLoadingProfile(true);
+    // Determine verified role:
+    // - krithickrajs.cs25@bitsathy.ac.in is Super Admin
+    // - BIT emails follow institutional logic (student if regex matches, else staff)
+    // - ALL other external emails (e.g., @gmail.com) default to student role
     let targetRole = resolveRoleFromEmail(email);
-    
-    // Student email pattern (.deptBatch@bitsathy.ac.in) or bitsenthil@gmail.com is always strictly student
-    const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(email) || email === 'bitsenthil@gmail.com';
-    if (!isStudentPattern) {
-      try {
-        const result = await api.getUserProfile();
-        if (result?.role) {
-          targetRole = result.role;
-        }
-      } catch (err) {
-        console.warn('Backend profile fetch note:', err.message);
-      }
-    }
-
     setCurrentRole(targetRole);
     setLoadingProfile(false);
 
@@ -140,6 +96,7 @@ export default function App() {
     if (targetRole === 'student') {
       try {
         const cleanEmail = email.toLowerCase().trim();
+        const isBitDomain = cleanEmail.endsWith('@bitsathy.ac.in');
         let existingProf = null;
 
         // 1. Try direct Supabase lookup
@@ -163,14 +120,13 @@ export default function App() {
 
         if (existingProf) {
           setStudentProfile(existingProf);
-          if ((!existingProf.reg_no || !existingProf.dob) && email !== 'bitsenthil@gmail.com') {
+          // If non-BIT student has missing institution or reg_no, open onboarding form
+          if (!isBitDomain && (!existingProf.institution || !existingProf.reg_no || !existingProf.dob)) {
             setShowOnboarding(true);
           }
         } else {
           // New student: pop open onboarding form
-          if (email !== 'bitsenthil@gmail.com') {
-            setShowOnboarding(true);
-          }
+          setShowOnboarding(true);
         }
       } catch (err) {
         console.warn('Student profile check error:', err);
@@ -225,18 +181,21 @@ export default function App() {
   // If user is logged in, show their dedicated full-screen dashboard matching the screenshots
   if (currentUser) {
     const isSuperAdmin = isMasterAccount(currentUser?.email);
+    const userEmail = (currentUser?.email || '').toLowerCase().trim();
+    const isBitDomain = userEmail.endsWith('@bitsathy.ac.in');
+    const parsedBit = isBitDomain ? parseBitEmail(userEmail) : null;
 
-    // Guaranteed fallback student profile for student view
-    const isBitsenthil = currentUser?.email === 'bitsenthil@gmail.com';
+    // Student profile fallback: BIT students get auto-filled values, non-BIT students get empty fields except name
     const effectiveStudentProfile = studentProfile || {
-      name: isBitsenthil ? 'SENTHIL' : (currentUser?.user_metadata?.full_name || 'Krithick Raj S'),
-      email: currentUser?.email || 'krithickrajs.cs25@bitsathy.ac.in',
-      reg_no: isBitsenthil ? '7376251CS999' : '7376251CS101',
-      department: 'Computer Science and Engineering',
-      year: 'II Year (Second Year)',
-      section: 'A',
-      dob: isBitsenthil ? '2005-05-15' : '2005-08-12',
-      phone: '9876543210'
+      name: currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || userEmail.split('@')[0],
+      email: currentUser?.email,
+      institution: isBitDomain ? 'Bannari Amman Institute of Technology' : '',
+      reg_no: isBitDomain ? (parsedBit?.predictedRegNo || '7376251CS101') : '',
+      department: isBitDomain ? (parsedBit?.department || 'Computer Science and Engineering') : '',
+      year: isBitDomain ? (parsedBit?.academicYear || 'II Year (Second Year)') : '',
+      section: isBitDomain ? 'A' : '',
+      dob: isBitDomain ? '2005-08-12' : '',
+      phone: ''
     };
 
     return (
@@ -407,7 +366,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div className="domain-pill">
             <span className="domain-dot" />
-            <span>@{allowedDomain}</span>
+            <span>Google Single Sign-On</span>
           </div>
         </div>
       </header>
@@ -423,14 +382,8 @@ export default function App() {
 
         <LoginPage
           onLoginSuccess={(user) => {
-            const email = (user?.email || '').toLowerCase().trim();
-            const cleanDomain = (allowedDomain || 'bitsathy.ac.in').toLowerCase().trim();
-            if (!email.endsWith(`@${cleanDomain}`) && email !== 'bitsenthil@gmail.com') {
-              setAuthError(`Access Denied: The account "${email}" is not authorized. Only official @${cleanDomain} accounts are permitted.`);
-              return;
-            }
             setCurrentUser(user);
-            setCurrentRole(resolveRoleFromEmail(user.email));
+            setCurrentRole(resolveRoleFromEmail(user?.email || ''));
           }}
           onEnterDemo={handleEnterDemo}
         />

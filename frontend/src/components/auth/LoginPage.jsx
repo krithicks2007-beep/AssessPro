@@ -68,7 +68,7 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
           </div>
           <h1 className="login-title">Sign in to AssessPro</h1>
           <p className="login-subtitle">
-            Enter your institutional <strong>@{allowedDomain}</strong> credentials
+            Sign in with Google to access the online assessment portal
           </p>
         </div>
 
@@ -80,14 +80,76 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
           </div>
         )}
 
+        {/* Google OAuth Button - Primary Authentication */}
+        <button
+          type="button"
+          className="btn-google-light"
+          onClick={handleGoogleSignIn}
+          disabled={googleLoading || loading}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
+            width: '100%',
+            padding: '0.85rem 1rem',
+            borderRadius: '12px',
+            border: '1px solid #cbd5e1',
+            background: '#ffffff',
+            color: '#1e293b',
+            fontSize: '0.98rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+            transition: 'all 0.2s ease',
+            marginTop: '0.5rem',
+            marginBottom: '0.75rem'
+          }}
+        >
+          <svg 
+            className="google-icon-svg" 
+            viewBox="0 0 24 24" 
+            width="22" 
+            height="22" 
+            style={{ width: '22px', height: '22px', minWidth: '22px', minHeight: '22px', flexShrink: 0 }}
+          >
+            <path
+              fill="#4285F4"
+              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"
+            />
+            <path
+              fill="#34A853"
+              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.27v3.14C3.26 21.36 7.33 24 12 24z"
+            />
+            <path
+              fill="#FBBC05"
+              d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.59H1.27C.46 8.21 0 10.05 0 12s.46 3.79 1.27 5.41l4.01-3.14z"
+            />
+            <path
+              fill="#EA4335"
+              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.27 6.59l4.01 3.14c.95-2.83 3.6-4.98 6.72-4.98z"
+            />
+          </svg>
+          <span>{googleLoading ? 'Connecting to Google...' : 'Sign in with Google'}</span>
+        </button>
+
+        <p style={{ textAlign: 'center', fontSize: '0.78rem', color: '#64748b', margin: '0.25rem 0 1rem' }}>
+          Supports @bitsathy.ac.in institutional accounts and personal Google IDs
+        </p>
+
+        {/* Divider */}
+        <div className="divider" style={{ margin: '1rem 0' }}>
+          <span>or sign in with password</span>
+        </div>
+
         {/* Mail ID & Password Form */}
         <form onSubmit={handleEmailSignIn}>
           <div className="form-group">
-            <label className="form-label">Mail ID</label>
+            <label className="form-label">Email Address</label>
             <input
               type="email"
               className="form-input"
-              placeholder={`name@${allowedDomain}`}
+              placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -132,48 +194,9 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
             className="btn-submit"
             disabled={loading || googleLoading}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : 'Sign In with Password'}
           </button>
         </form>
-
-        {/* Divider */}
-        <div className="divider">
-          <span>or</span>
-        </div>
-
-        {/* Google OAuth Button */}
-        <button
-          type="button"
-          className="btn-google-light"
-          onClick={handleGoogleSignIn}
-          disabled={googleLoading || loading}
-        >
-          <svg 
-            className="google-icon-svg" 
-            viewBox="0 0 24 24" 
-            width="20" 
-            height="20" 
-            style={{ width: '20px', height: '20px', minWidth: '20px', minHeight: '20px', flexShrink: 0 }}
-          >
-            <path
-              fill="#4285F4"
-              d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"
-            />
-            <path
-              fill="#34A853"
-              d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.27v3.14C3.26 21.36 7.33 24 12 24z"
-            />
-            <path
-              fill="#FBBC05"
-              d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.59H1.27C.46 8.21 0 10.05 0 12s.46 3.79 1.27 5.41l4.01-3.14z"
-            />
-            <path
-              fill="#EA4335"
-              d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.27 6.59l4.01 3.14c.95-2.83 3.6-4.98 6.72-4.98z"
-            />
-          </svg>
-          <span>{googleLoading ? 'Connecting...' : 'Sign in with Google'}</span>
-        </button>
 
       </div>
     </div>
