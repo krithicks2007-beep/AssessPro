@@ -118,17 +118,22 @@ export default function App() {
     // Fetch verified profile & role from Backend API
     setLoadingProfile(true);
     let targetRole = resolveRoleFromEmail(email);
-    try {
-      const result = await api.getUserProfile();
-      if (result?.role) {
-        targetRole = result.role;
+    
+    // Student email pattern (.deptBatch@bitsathy.ac.in) is always strictly student
+    const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(email);
+    if (!isStudentPattern) {
+      try {
+        const result = await api.getUserProfile();
+        if (result?.role) {
+          targetRole = result.role;
+        }
+      } catch (err) {
+        console.warn('Backend profile fetch note:', err.message);
       }
-    } catch (err) {
-      console.warn('Backend profile fetch note:', err.message);
-    } finally {
-      setCurrentRole(targetRole);
-      setLoadingProfile(false);
     }
+
+    setCurrentRole(targetRole);
+    setLoadingProfile(false);
 
     // Check student profile setup
     if (targetRole === 'student') {
@@ -160,21 +165,9 @@ export default function App() {
           if (!existingProf.reg_no || !existingProf.dob) {
             setShowOnboarding(true);
           }
-        } else if (!isMasterAccount(email)) {
+        } else {
           // New student: pop open onboarding form
           setShowOnboarding(true);
-        } else {
-          // Default profile for master account
-          setStudentProfile({
-            name: user.user_metadata?.full_name || 'Krithick Raj S',
-            email: email,
-            reg_no: '7376251CS101',
-            department: 'Computer Science and Engineering',
-            year: 'II Year (Second Year)',
-            section: 'A',
-            dob: '2005-08-12',
-            phone: '9876543210'
-          });
         }
       } catch (err) {
         console.warn('Student profile check error:', err);

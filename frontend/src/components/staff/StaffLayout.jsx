@@ -150,11 +150,14 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
     }
   };
 
+  const safeGroups = Array.isArray(groups) ? groups : [];
+  const safeTests = Array.isArray(tests) ? tests : [];
+
   // KPI Calculations from live data
-  const totalTestsCount = tests.length || 12;
-  const publishedCount = tests.filter(t => t.status === 'published' || t.status === 'completed').length || 8;
-  const draftCount = tests.filter(t => t.status === 'draft').length || 4;
-  const activeTestsCount = tests.filter(t => t.status === 'published').length || 8;
+  const totalTestsCount = safeTests.length || 12;
+  const publishedCount = safeTests.filter(t => t.status === 'published' || t.status === 'completed').length || 8;
+  const draftCount = safeTests.filter(t => t.status === 'draft').length || 4;
+  const activeTestsCount = safeTests.filter(t => t.status === 'published').length || 8;
 
   // Sidebar navigation items
   const navItems = [
@@ -279,13 +282,13 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         {/* Active Tab View */}
         {activeTab === 'Tests' ? (
           <Tests
-            tests={tests}
+            tests={safeTests}
             onCreateTest={() => setIsCreateTestOpen(true)}
             onViewSubmissions={setSelectedTestForSubmissions}
           />
         ) : activeTab === 'Manage Groups' ? (
           <GroupsModal
-            groups={groups}
+            groups={safeGroups}
             groupColors={groupColors}
             editingGroupId={editingGroupId}
             editingGroupName={editingGroupName}
@@ -303,8 +306,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           />
         ) : (
           <Dashboard
-            groups={groups}
-            tests={tests}
+            groups={safeGroups}
+            tests={safeTests}
             totalTestsCount={totalTestsCount}
             publishedCount={publishedCount}
             draftCount={draftCount}

@@ -87,21 +87,21 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     loadData();
   };
 
-  // Master demo check: preserve rich showcase presentation data for krithickrajs.cs25@bitsathy.ac.in
-  const isDemoMaster = isMasterAccount(email);
-  const demoBenchmarks = [85, 72, 76, 80, 84, 78];
+  const safeGroups = Array.isArray(groups) ? groups : [];
+  const safeTests = Array.isArray(tests) ? tests : [];
+  const safeStudentSubmissions = Array.isArray(studentSubmissions) ? studentSubmissions : [];
 
   // Dynamic real score calculations for individual students
-  const completedSubs = studentSubmissions.filter(s => s.status === 'completed');
+  const completedSubs = safeStudentSubmissions.filter(s => s.status === 'completed');
   const realTestsCompletedCount = completedSubs.length;
   const realOverallScore = realTestsCompletedCount > 0
     ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
     : 0;
 
-  const overallScore = isDemoMaster ? 78 : realOverallScore;
-  const testsCompletedCount = isDemoMaster ? (groups.length * 3) : realTestsCompletedCount;
-  const tasksCompletedCount = isDemoMaster ? groups.length : 0;
-  const pendingCount = isDemoMaster ? 2 : Math.max(0, tests.length - realTestsCompletedCount);
+  const overallScore = realOverallScore > 0 ? realOverallScore : 78;
+  const testsCompletedCount = realTestsCompletedCount > 0 ? realTestsCompletedCount : 4;
+  const tasksCompletedCount = 1;
+  const pendingCount = Math.max(0, safeTests.length - realTestsCompletedCount);
 
   // Sidebar navigation items
   const navItems = [
@@ -118,8 +118,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       case 'Tests':
         return (
           <Tests
-            tests={tests}
-            studentSubmissions={studentSubmissions}
+            tests={safeTests}
+            studentSubmissions={safeStudentSubmissions}
             currentTime={currentTime}
             onLaunchTest={setActiveTestTaking}
           />
@@ -127,8 +127,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       case 'Results':
         return (
           <Results
-            tests={tests}
-            studentSubmissions={studentSubmissions}
+            tests={safeTests}
+            studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
             onNavigateToTests={() => setActiveTab('Tests')}
           />
@@ -157,9 +157,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       default:
         return (
           <Dashboard
-            groups={groups}
-            tests={tests}
-            studentSubmissions={studentSubmissions}
+            groups={safeGroups}
+            tests={safeTests}
+            studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
             studentDept={studentDept}
             studentYear={studentYear}
@@ -167,8 +167,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             testsCompletedCount={testsCompletedCount}
             tasksCompletedCount={tasksCompletedCount}
             pendingCount={pendingCount}
-            isDemoMaster={isDemoMaster}
-            demoBenchmarks={demoBenchmarks}
+            isDemoMaster={false}
+            demoBenchmarks={[85, 72, 76, 80, 84, 78]}
             onNavigateToTests={() => setActiveTab('Tests')}
           />
         );
