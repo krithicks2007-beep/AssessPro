@@ -876,8 +876,13 @@ app.put('/api/admin/users/:id/role', async (req, res) => {
   }
 });
 
-// Start Express Server
-app.listen(PORT, () => {
-  console.log(`AssessPro Backend API running on http://localhost:${PORT}`);
-  console.log(`Allowed Domain Enforcement: @${ALLOWED_DOMAIN}`);
-});
+// Start Express Server (for local dev)
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`AssessPro Backend API running on http://localhost:${PORT}`);
+    console.log(`Allowed Domain Enforcement: @${ALLOWED_DOMAIN}`);
+  });
+}
+
+// Export for Vercel serverless
+export default app;
