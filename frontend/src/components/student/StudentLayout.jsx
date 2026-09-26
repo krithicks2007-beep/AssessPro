@@ -67,6 +67,10 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const loadData = async () => {
     setLoading(true);
     try {
+      const cleanEmail = (email || '').toLowerCase().trim();
+      const localSubs = cleanEmail ? JSON.parse(localStorage.getItem('assesspro_subs_' + cleanEmail) || '[]') : [];
+      const allLocalSubs = JSON.parse(localStorage.getItem('assesspro_all_submissions') || '[]');
+
       const [gData, tData, sData] = await Promise.all([
         api.getGroups(),
         api.getTests(),
@@ -74,7 +78,14 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       ]);
       setGroups(gData || []);
       setTests(tData || []);
-      setStudentSubmissions(sData || []);
+
+      // Combine server submissions and local submissions so completed tests are NEVER lost
+      const subMap = new Map();
+      (sData || []).forEach(s => subMap.set(String(s.test_id), s));
+      allLocalSubs.filter(s => s.student_email?.toLowerCase() === cleanEmail).forEach(s => subMap.set(String(s.test_id), s));
+      localSubs.forEach(s => subMap.set(String(s.test_id), s));
+
+      setStudentSubmissions(Array.from(subMap.values()));
     } catch (err) {
       console.error('Error fetching student dashboard data:', err);
     } finally {
@@ -83,8 +94,24 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   };
 
   const handleTestCompleted = (submission) => {
-    setStudentSubmissions(prev => [submission, ...prev.filter(s => s.test_id !== submission.test_id)]);
-    loadData();
+    const cleanEmail = (email || '').toLowerCase().trim();
+    try {
+      const studentKey = 'assesspro_subs_' + cleanEmail;
+      const existing = JSON.parse(localStorage.getItem(studentKey) || '[]');
+      const updated = [submission, ...existing.filter(s => String(s.test_id) !== String(submission.test_id))];
+      localStorage.setItem(studentKey, JSON.stringify(updated));
+
+      const allKey = 'assesspro_all_submissions';
+      const existingAll = JSON.parse(localStorage.getItem(allKey) || '[]');
+      const updatedAll = [submission, ...existingAll.filter(s => !(String(s.test_id) === String(submission.test_id) && s.student_email?.toLowerCase() === cleanEmail))];
+      localStorage.setItem(allKey, JSON.stringify(updatedAll));
+    } catch (e) {}
+
+    // Update state directly so tests button switches immediately to Submitted and results are instantly visible
+    setStudentSubmissions(prev => [
+      submission,
+      ...prev.filter(s => String(s.test_id) !== String(submission.test_id))
+    ]);
   };
 
   const safeGroups = Array.isArray(groups) ? groups : [];
@@ -143,6 +170,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             tests={effectiveTests}
             studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
+            email={email}
             isDemoMaster={isDemoMaster}
             onNavigateToTests={() => setActiveTab('Tests')}
           />

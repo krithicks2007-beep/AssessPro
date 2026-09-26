@@ -13,6 +13,7 @@ export default function Results({
   tests,
   studentSubmissions,
   studentName,
+  email = '',
   isDemoMaster = false,
   onNavigateToTests
 }) {
@@ -63,9 +64,20 @@ export default function Results({
     }
   ];
 
-  const effectiveSubmissions = (isDemoMaster && (!studentSubmissions || studentSubmissions.length === 0))
+  // Merge server submissions and local client storage submissions
+  const cleanEmail = (email || '').toLowerCase().trim();
+  const localSubs = cleanEmail ? JSON.parse(localStorage.getItem('assesspro_subs_' + cleanEmail) || '[]') : [];
+  const allLocalSubs = JSON.parse(localStorage.getItem('assesspro_all_submissions') || '[]');
+
+  const subMap = new Map();
+  (studentSubmissions || []).forEach(s => subMap.set(String(s.test_id), s));
+  allLocalSubs.filter(s => s.student_email?.toLowerCase() === cleanEmail).forEach(s => subMap.set(String(s.test_id), s));
+  localSubs.forEach(s => subMap.set(String(s.test_id), s));
+  const activeSubs = Array.from(subMap.values());
+
+  const effectiveSubmissions = (isDemoMaster && activeSubs.length === 0)
     ? demoSubmissions
-    : (studentSubmissions || []);
+    : activeSubs;
 
   return (
     <div className="dashboard-content">
@@ -142,11 +154,14 @@ export default function Results({
             </thead>
             <tbody>
               {effectiveSubmissions.map((sub, idx) => {
-                const relatedTest = tests.find(t => t.id === sub.test_id);
+                const relatedTest = tests.find(t => 
+                  String(t.id).trim() === String(sub.test_id).trim() || 
+                  (t.title && sub.test_title && t.title.toLowerCase() === sub.test_title.toLowerCase())
+                );
                 return (
                   <tr key={sub.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#0f172a' }}>
-                      {relatedTest?.title || sub.test_title || `Assessment #${idx + 1}`}
+                      {sub.test_title || relatedTest?.title || `Assessment #${idx + 1}`}
                     </td>
                     <td style={{ padding: '1rem 1rem', fontWeight: 600 }}>
                       {sub.score} / {sub.max_score}

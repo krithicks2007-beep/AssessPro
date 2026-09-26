@@ -87,7 +87,10 @@ export default function Tests({
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
           {tests.map(test => {
-          const submission = studentSubmissions.find(s => s.test_id === test.id);
+          const submission = studentSubmissions.find(s => 
+            (s.test_id && String(s.test_id).trim() === String(test.id).trim()) ||
+            (s.test_title && test.title && s.test_title.trim().toLowerCase() === test.title.trim().toLowerCase())
+          );
           const isCompleted = Boolean(submission);
 
           const hasStartTime = Boolean(test.start_time);
