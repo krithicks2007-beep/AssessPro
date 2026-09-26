@@ -612,95 +612,110 @@ app.get('/api/tests/:id', async (req, res) => {
 
 // Create new test with questions & timing
 app.post('/api/tests', async (req, res) => {
-  const { 
-    title, 
-    groupId, 
-    testNumber,
-    durationMinutes, 
-    testType, 
-    status, 
-    startTime, 
-    endTime, 
-    questions, 
-    maxScore,
-    userId 
-  } = req.body;
+  try {
+    const { 
+      title, 
+      groupId, 
+      testNumber,
+      durationMinutes, 
+      testType, 
+      status, 
+      startTime, 
+      endTime, 
+      questions, 
+      maxScore,
+      userId 
+    } = req.body;
 
-  if (!title || !title.trim()) {
-    return res.status(400).json({ error: 'Test title is required' });
-  }
-
-  const cleanQuestions = Array.isArray(questions) && questions.length > 0 
-    ? questions 
-    : inMemoryTests[0].questions;
-
-  const totalScore = parseInt(maxScore) || (cleanQuestions.length * 10);
-  const duration = parseInt(durationMinutes) || 45;
-  const num = parseInt(testNumber) || (inMemoryTests.length + 1);
-
-  // Find group metadata
-  let groupMeta = { name: 'Core Subjects', group_number: 1, color: '#1d72fe' };
-  if (supabase && groupId) {
-    try {
-      const { data: g } = await supabase.from('groups').select('*').eq('id', groupId).maybeSingle();
-      if (g) groupMeta = g;
-    } catch {}
-  }
-
-  const newTestObj = {
-    id: 'test-' + Date.now(),
-    test_number: num,
-    title: title.trim(),
-    group_id: groupId || '00000000-0000-0000-0000-000000000001',
-    duration_minutes: duration,
-    test_type: testType || 'test',
-    status: status || 'published',
-    allow_latecomers: req.body.allowLatecomers !== false,
-    start_time: startTime || new Date().toISOString(),
-    end_time: endTime || new Date(Date.now() + 86400000).toISOString(),
-    questions: cleanQuestions,
-    total_questions: cleanQuestions.length,
-    max_score: totalScore,
-    created_at: new Date().toISOString(),
-    created_by: userId || null,
-    groups: groupMeta
-  };
-
-  // Attempt database persistence and capture auto-generated UUID
-  if (supabase) {
-    try {
-      const payload = {
-        title: newTestObj.title,
-        group_id: newTestObj.group_id,
-        duration_minutes: newTestObj.duration_minutes,
-        test_type: newTestObj.test_type,
-        status: newTestObj.status,
-        max_score: newTestObj.max_score,
-        created_by: newTestObj.created_by,
-        scheduled_date: newTestObj.start_time
-      };
-      const { data: dbCreated } = await supabase.from('tests').insert([payload]).select();
-      if (dbCreated && dbCreated[0]) {
-        newTestObj.id = dbCreated[0].id;
-      }
-    } catch (err) {
-      console.warn('Note: test saved to memory cache:', err.message);
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Test title is required' });
     }
+
+    const cleanQuestions = Array.isArray(questions) && questions.length > 0 
+      ? questions 
+      : inMemoryTests[0].questions;
+
+    const totalScore = parseInt(maxScore) || (cleanQuestions.length * 10);
+    const duration = parseInt(durationMinutes) || 45;
+    const num = parseInt(testNumber) || (inMemoryTests.length + 1);
+
+    const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+
+    let cleanGroupId = isValidUUID(groupId) ? groupId : '00000000-0000-0000-0000-000000000001';
+    let cleanUserId = isValidUUID(userId) ? userId : null;
+
+    // Find group metadata
+    let groupMeta = { name: 'Core Subjects', group_number: 1, color: '#1d72fe' };
+    if (supabase && cleanGroupId) {
+      try {
+        const { data: g } = await supabase.from('groups').select('*').eq('id', cleanGroupId).maybeSingle();
+        if (g) groupMeta = g;
+      } catch {}
+    }
+
+    const newTestObj = {
+      id: 'test-' + Date.now(),
+      test_number: num,
+      title: title.trim(),
+      group_id: cleanGroupId,
+      duration_minutes: duration,
+      test_type: testType || 'test',
+      status: status || 'published',
+      allow_latecomers: req.body.allowLatecomers !== false,
+      start_time: startTime || new Date().toISOString(),
+      end_time: endTime || new Date(Date.now() + 86400000).toISOString(),
+      questions: cleanQuestions,
+      total_questions: cleanQuestions.length,
+      max_score: totalScore,
+      created_at: new Date().toISOString(),
+      created_by: cleanUserId,
+      groups: groupMeta,
+      is_demo: false
+    };
+
+    // Attempt database persistence and capture auto-generated UUID
+    if (supabase) {
+      try {
+        const payload = {
+          title: newTestObj.title,
+          group_id: cleanGroupId,
+          duration_minutes: newTestObj.duration_minutes,
+          test_type: newTestObj.test_type,
+          status: newTestObj.status,
+          max_score: newTestObj.max_score,
+          scheduled_date: newTestObj.start_time
+        };
+        if (cleanUserId) {
+          payload.created_by = cleanUserId;
+        }
+        const { data: dbCreated, error: insertErr } = await supabase.from('tests').insert([payload]).select();
+        if (dbCreated && dbCreated[0]) {
+          newTestObj.id = dbCreated[0].id;
+        } else if (insertErr) {
+          console.warn('Supabase test insert note (falling back to memory):', insertErr.message);
+        }
+      } catch (err) {
+        console.warn('Note: test saved to memory cache:', err.message);
+      }
+    }
+
+    // Register questions and timings in map by UUID and by title
+    testQuestionsMap.set(newTestObj.id, cleanQuestions);
+    testQuestionsMap.set(String(newTestObj.id), cleanQuestions);
+    testQuestionsMap.set(newTestObj.title, cleanQuestions);
+
+    testTimingMap.set(newTestObj.id, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
+    testTimingMap.set(String(newTestObj.id), { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
+    testTimingMap.set(newTestObj.title, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
+
+    // Add to in-memory store
+    inMemoryTests.unshift(newTestObj);
+
+    return res.status(201).json(newTestObj);
+  } catch (err) {
+    console.error('Create test error:', err);
+    return res.status(500).json({ error: 'Failed to create test: ' + err.message });
   }
-
-  // Register questions and timings in map by UUID and by title
-  testQuestionsMap.set(newTestObj.id, cleanQuestions);
-  testQuestionsMap.set(String(newTestObj.id), cleanQuestions);
-  testQuestionsMap.set(newTestObj.title, cleanQuestions);
-
-  testTimingMap.set(newTestObj.id, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-  testTimingMap.set(String(newTestObj.id), { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-  testTimingMap.set(newTestObj.title, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-
-  // Add to in-memory store
-  inMemoryTests.unshift(newTestObj);
-
-  res.status(201).json(newTestObj);
 });
 
 // -------------------------------------------------------------
