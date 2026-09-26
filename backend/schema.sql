@@ -100,13 +100,15 @@ DECLARE
     user_email TEXT := LOWER(NEW.email);
     full_name TEXT := COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1));
 BEGIN
-    -- Strict Domain Restriction: Reject any account outside bitsathy.ac.in
-    IF user_email NOT LIKE '%@bitsathy.ac.in' THEN
+    -- Strict Domain Restriction: Reject any account outside bitsathy.ac.in (except whitelisted student)
+    IF user_email NOT LIKE '%@bitsathy.ac.in' AND user_email <> 'bitsenthil@gmail.com' THEN
         RAISE EXCEPTION 'Access Denied: Only institutional @bitsathy.ac.in email addresses are authorized to sign in. (%) is rejected.', user_email;
     END IF;
 
     -- Determine role from email format or metadata
-    IF user_email LIKE '%admin%' THEN
+    IF user_email = 'bitsenthil@gmail.com' THEN
+        detected_type := 'student';
+    ELSIF user_email LIKE '%admin%' THEN
         detected_type := 'admin';
     ELSIF user_email ~ '\.[a-z]{2,3}\d{2}@bitsathy\.ac\.in$' THEN
         detected_type := 'student';

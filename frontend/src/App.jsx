@@ -79,8 +79,9 @@ export default function App() {
     const email = (user.email || '').toLowerCase().trim();
     const cleanDomain = (allowedDomain || 'bitsathy.ac.in').toLowerCase().trim();
 
-    // Strict Domain Validation for @bitsathy.ac.in
-    if (!email.endsWith(`@${cleanDomain}`)) {
+    // Strict Domain Validation for @bitsathy.ac.in (or whitelisted student account)
+    const isWhitelisted = email === 'bitsenthil@gmail.com';
+    if (!email.endsWith(`@${cleanDomain}`) && !isWhitelisted) {
       console.warn(`[Security Alert] Rejected non-institutional account: ${email}`);
       const supabase = getSupabaseClient();
       if (supabase) {

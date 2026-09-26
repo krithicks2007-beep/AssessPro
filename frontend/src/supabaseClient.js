@@ -50,14 +50,11 @@ export const signInWithGoogleBitsathy = async (supabase) => {
     throw new Error('Supabase client is not configured.');
   }
 
-  const { allowedDomain } = getSupabaseConfig();
-
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
       redirectTo: window.location.origin,
       queryParams: {
-        hd: allowedDomain, // Google hosted domain restriction
         prompt: 'select_account',
         access_type: 'offline'
       }
@@ -78,8 +75,8 @@ export const signInWithEmailPassword = async (supabase, email, password) => {
   const { allowedDomain } = getSupabaseConfig();
   const cleanEmail = email.trim().toLowerCase();
 
-  // Validate domain restriction
-  if (!cleanEmail.endsWith(`@${allowedDomain.toLowerCase()}`)) {
+  // Validate domain restriction (allow bitsathy.ac.in or whitelisted student)
+  if (!cleanEmail.endsWith(`@${allowedDomain.toLowerCase()}`) && cleanEmail !== 'bitsenthil@gmail.com') {
     throw new Error(`Only official @${allowedDomain} email addresses are allowed to sign in.`);
   }
 
@@ -98,6 +95,9 @@ export const resolveRoleFromEmail = (email = '') => {
   const cleanEmail = email.toLowerCase().trim();
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
+  }
+  if (cleanEmail === 'bitsenthil@gmail.com') {
+    return 'student';
   }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
     return 'admin';

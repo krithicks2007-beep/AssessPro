@@ -27,6 +27,9 @@ const resolveRoleFromEmail = (email = '') => {
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
   }
+  if (cleanEmail === 'bitsenthil@gmail.com') {
+    return 'student';
+  }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
     return 'admin';
   }
@@ -58,7 +61,7 @@ const verifyAuth = async (req, res, next) => {
     }
 
     const email = (user.email || '').toLowerCase().trim();
-    if (!email.endsWith(`@${ALLOWED_DOMAIN}`)) {
+    if (!email.endsWith(`@${ALLOWED_DOMAIN}`) && email !== 'bitsenthil@gmail.com') {
       return res.status(403).json({
         error: `Access Denied: Only official @${ALLOWED_DOMAIN} accounts are authorized.`
       });
@@ -94,7 +97,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
+  if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== 'bitsenthil@gmail.com') {
     return res.status(403).json({
       error: `Access Restricted: Only @${ALLOWED_DOMAIN} institutional accounts are allowed.`
     });
