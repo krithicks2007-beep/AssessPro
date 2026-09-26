@@ -101,12 +101,20 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
     : 0;
 
+  // Filter tests:
+  // - Super Admin sees showcase demo tests (test-101, test-102) + any real tests created by staff
+  // - Fresh / Regular Students only see real tests created by faculty (demo seed tests filtered out)
+  const effectiveTests = safeTests.filter(t => {
+    if (isDemoMaster) return true;
+    return !t.is_demo && t.id !== 'test-101' && t.id !== 'test-102';
+  });
+
   // For Super Admin demo preview account: show realistic populated showcase data
   // For all other students: show 100% real dynamic data
   const overallScore = isDemoMaster ? 78 : realOverallScore;
   const testsCompletedCount = isDemoMaster ? 4 : realTestsCompletedCount;
   const tasksCompletedCount = isDemoMaster ? 1 : 0;
-  const pendingCount = isDemoMaster ? 2 : Math.max(0, safeTests.length - realTestsCompletedCount);
+  const pendingCount = isDemoMaster ? 2 : Math.max(0, effectiveTests.length - realTestsCompletedCount);
 
   // Sidebar navigation items
   const navItems = [
@@ -123,7 +131,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       case 'Tests':
         return (
           <Tests
-            tests={safeTests}
+            tests={effectiveTests}
             studentSubmissions={safeStudentSubmissions}
             currentTime={currentTime}
             onLaunchTest={setActiveTestTaking}
@@ -132,7 +140,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       case 'Results':
         return (
           <Results
-            tests={safeTests}
+            tests={effectiveTests}
             studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
             isDemoMaster={isDemoMaster}
@@ -164,7 +172,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         return (
           <Dashboard
             groups={safeGroups}
-            tests={safeTests}
+            tests={effectiveTests}
             studentSubmissions={safeStudentSubmissions}
             studentName={studentName}
             studentDept={studentDept}

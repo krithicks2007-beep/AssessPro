@@ -54,9 +54,39 @@ export default function Tests({
         </div>
       </div>
 
-      {/* Tests Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
-        {tests.map(test => {
+      {/* Tests Grid or Clean Empty State */}
+      {tests.length === 0 ? (
+        <div style={{
+          background: '#ffffff',
+          borderRadius: '16px',
+          border: '1px solid #e5e7eb',
+          padding: '3.5rem 2rem',
+          textAlign: 'center',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            borderRadius: '50%',
+            background: '#eff6ff',
+            color: '#1d72fe',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1.25rem'
+          }}>
+            <Clock size={28} />
+          </div>
+          <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#111827', margin: '0 0 0.5rem' }}>
+            No Assessments Scheduled Yet
+          </h3>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: '440px', margin: '0 auto', lineHeight: 1.6 }}>
+            There are currently no active or upcoming tests scheduled for your department. Once your faculty schedules and publishes a test, it will appear here automatically.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
+          {tests.map(test => {
           const submission = studentSubmissions.find(s => s.test_id === test.id);
           const isCompleted = Boolean(submission);
 
@@ -255,7 +285,8 @@ export default function Tests({
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -438,6 +438,7 @@ app.delete('/api/groups/:id', async (req, res) => {
 let inMemoryTests = [
   {
     id: 'test-101',
+    is_demo: true,
     test_number: 1,
     title: 'Data Structures & Logic Essentials',
     group_id: '00000000-0000-0000-0000-000000000001',
@@ -465,6 +466,7 @@ let inMemoryTests = [
   },
   {
     id: 'test-102',
+    is_demo: true,
     test_number: 2,
     title: 'Microcontroller Architecture & Control Loops',
     group_id: '00000000-0000-0000-0000-000000000002',
