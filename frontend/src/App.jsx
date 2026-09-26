@@ -120,8 +120,8 @@ export default function App() {
     setLoadingProfile(true);
     let targetRole = resolveRoleFromEmail(email);
     
-    // Student email pattern (.deptBatch@bitsathy.ac.in) is always strictly student
-    const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(email);
+    // Student email pattern (.deptBatch@bitsathy.ac.in) or bitsenthil@gmail.com is always strictly student
+    const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(email) || email === 'bitsenthil@gmail.com';
     if (!isStudentPattern) {
       try {
         const result = await api.getUserProfile();
@@ -163,12 +163,14 @@ export default function App() {
 
         if (existingProf) {
           setStudentProfile(existingProf);
-          if (!existingProf.reg_no || !existingProf.dob) {
+          if ((!existingProf.reg_no || !existingProf.dob) && email !== 'bitsenthil@gmail.com') {
             setShowOnboarding(true);
           }
         } else {
           // New student: pop open onboarding form
-          setShowOnboarding(true);
+          if (email !== 'bitsenthil@gmail.com') {
+            setShowOnboarding(true);
+          }
         }
       } catch (err) {
         console.warn('Student profile check error:', err);
@@ -224,15 +226,16 @@ export default function App() {
   if (currentUser) {
     const isSuperAdmin = isMasterAccount(currentUser?.email);
 
-    // Guaranteed fallback student profile for super admin testing student view
+    // Guaranteed fallback student profile for student view
+    const isBitsenthil = currentUser?.email === 'bitsenthil@gmail.com';
     const effectiveStudentProfile = studentProfile || {
-      name: currentUser?.user_metadata?.full_name || 'Krithick Raj S',
+      name: isBitsenthil ? 'SENTHIL' : (currentUser?.user_metadata?.full_name || 'Krithick Raj S'),
       email: currentUser?.email || 'krithickrajs.cs25@bitsathy.ac.in',
-      reg_no: '7376251CS101',
+      reg_no: isBitsenthil ? '7376251CS999' : '7376251CS101',
       department: 'Computer Science and Engineering',
       year: 'II Year (Second Year)',
       section: 'A',
-      dob: '2005-08-12',
+      dob: isBitsenthil ? '2005-05-15' : '2005-08-12',
       phone: '9876543210'
     };
 
@@ -422,7 +425,7 @@ export default function App() {
           onLoginSuccess={(user) => {
             const email = (user?.email || '').toLowerCase().trim();
             const cleanDomain = (allowedDomain || 'bitsathy.ac.in').toLowerCase().trim();
-            if (!email.endsWith(`@${cleanDomain}`)) {
+            if (!email.endsWith(`@${cleanDomain}`) && email !== 'bitsenthil@gmail.com') {
               setAuthError(`Access Denied: The account "${email}" is not authorized. Only official @${cleanDomain} accounts are permitted.`);
               return;
             }
