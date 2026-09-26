@@ -75,6 +75,9 @@ export default function App() {
       return;
     }
 
+    const user = currentSession.user;
+    const email = (user?.email || '').toLowerCase().trim();
+
     // Save auth token for backend API requests
     if (currentSession.access_token) {
       localStorage.setItem('assesspro_auth_token', currentSession.access_token);
