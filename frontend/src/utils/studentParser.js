@@ -91,9 +91,9 @@ export const parseBitEmail = (email = '') => {
  * Master Admin Email: krithickrajs.cs25@bitsathy.ac.in
  * Keeps the master control dashboard to handle students, faculty, and admin views.
  */
-export const MASTER_ADMIN_EMAIL = 'admin@bitsathy.ac.in';
+export const MASTER_ADMIN_EMAIL = 'krithickrajs.cs25@bitsathy.ac.in';
 
 export const isMasterAccount = (email = '') => {
   const clean = (email || '').trim().toLowerCase();
-  return clean.startsWith('admin') || clean === 'admin@bitsathy.ac.in';
+  return clean === 'krithickrajs.cs25@bitsathy.ac.in' || clean.startsWith('admin');
 };

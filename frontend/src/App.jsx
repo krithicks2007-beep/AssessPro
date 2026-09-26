@@ -221,71 +221,89 @@ export default function App() {
 
   // If user is logged in, show their dedicated full-screen dashboard matching the screenshots
   if (currentUser) {
+    const isSuperAdmin = isMasterAccount(currentUser?.email);
+
+    // Guaranteed fallback student profile for super admin testing student view
+    const effectiveStudentProfile = studentProfile || {
+      name: currentUser?.user_metadata?.full_name || 'Krithick Raj S',
+      email: currentUser?.email || 'krithickrajs.cs25@bitsathy.ac.in',
+      reg_no: '7376251CS101',
+      department: 'Computer Science and Engineering',
+      year: 'II Year (Second Year)',
+      section: 'A',
+      dob: '2005-08-12',
+      phone: '9876543210'
+    };
+
     return (
       <div style={{ position: 'relative', width: '100%', minHeight: '100vh' }}>
-        {/* Floating Master Switcher: Strictly rendered ONLY for master account (krithickrajs.cs25@bitsathy.ac.in) */}
-        {isMasterAccount(currentUser?.email) && (
+        {/* Prominent Super Admin Switcher Bar */}
+        {isSuperAdmin && (
           <div style={{
             position: 'fixed',
-            bottom: '16px',
-            right: '16px',
-            zIndex: 100,
-            background: '#ffffff',
-            border: '1px solid #e5e7eb',
+            top: '12px',
+            right: '20px',
+            zIndex: 99999,
+            background: 'rgba(15, 23, 42, 0.95)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.18)',
             borderRadius: '30px',
-            padding: '4px 8px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            padding: '4px 10px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
             display: 'flex',
             alignItems: 'center',
             gap: '6px'
           }}>
-            <span style={{ fontSize: '0.68rem', color: '#6b7280', fontWeight: 600, paddingLeft: '4px' }}>
-              Master Admin:
+            <span style={{ fontSize: '0.72rem', color: '#fbbf24', fontWeight: 800, paddingLeft: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>👑</span> Super Admin:
             </span>
             <button
               onClick={() => setCurrentRole('student')}
               style={{
-                padding: '3px 8px',
-                fontSize: '0.72rem',
+                padding: '4px 10px',
+                fontSize: '0.74rem',
                 fontWeight: 700,
                 borderRadius: '20px',
                 border: 'none',
                 cursor: 'pointer',
-                background: currentRole === 'student' ? '#1d72fe' : '#f3f4f6',
-                color: currentRole === 'student' ? '#fff' : '#374151'
+                background: currentRole === 'student' ? '#1d72fe' : 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                transition: 'all 0.2s'
               }}
             >
-              Student
+              Student View
             </button>
             <button
               onClick={() => setCurrentRole('staff')}
               style={{
-                padding: '3px 8px',
-                fontSize: '0.72rem',
+                padding: '4px 10px',
+                fontSize: '0.74rem',
                 fontWeight: 700,
                 borderRadius: '20px',
                 border: 'none',
                 cursor: 'pointer',
-                background: currentRole === 'staff' ? '#1d72fe' : '#f3f4f6',
-                color: currentRole === 'staff' ? '#fff' : '#374151'
+                background: currentRole === 'staff' ? '#10b981' : 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                transition: 'all 0.2s'
               }}
             >
-              Faculty
+              Faculty View
             </button>
             <button
               onClick={() => setCurrentRole('admin')}
               style={{
-                padding: '3px 8px',
-                fontSize: '0.72rem',
+                padding: '4px 10px',
+                fontSize: '0.74rem',
                 fontWeight: 700,
                 borderRadius: '20px',
                 border: 'none',
                 cursor: 'pointer',
-                background: currentRole === 'admin' ? '#1d72fe' : '#f3f4f6',
-                color: currentRole === 'admin' ? '#fff' : '#374151'
+                background: currentRole === 'admin' ? '#8b5cf6' : 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                transition: 'all 0.2s'
               }}
             >
-              Admin
+              Admin Console
             </button>
           </div>
         )}
@@ -293,7 +311,7 @@ export default function App() {
         {currentRole === 'student' && (
           <StudentLayout 
             user={currentUser} 
-            studentProfile={studentProfile}
+            studentProfile={effectiveStudentProfile}
             onRequestEditProfile={() => setShowOnboarding(true)}
             onSignOut={handleSignOut} 
           />

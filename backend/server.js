@@ -24,7 +24,10 @@ if (supabaseUrl && supabaseKey) {
 // Role resolver helper based on email patterns
 const resolveRoleFromEmail = (email = '') => {
   const cleanEmail = email.toLowerCase().trim();
-  if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@')) {
+  if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+    return 'admin';
+  }
+  if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
     return 'admin';
   }
   const isStudentPattern = /\.[a-z]{2,5}\d{2}@/i.test(cleanEmail);
