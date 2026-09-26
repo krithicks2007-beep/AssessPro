@@ -175,21 +175,6 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
           <span>{googleLoading ? 'Connecting...' : 'Sign in with Google'}</span>
         </button>
 
-        {/* Quick Role Preview for testing dashboards */}
-        <div className="demo-role-box">
-          <div className="demo-role-title">Preview Assigned Dashboard Roles</div>
-          <div className="demo-buttons">
-            <button className="btn-demo-pill" onClick={() => onEnterDemo('student')}>
-              Student Role
-            </button>
-            <button className="btn-demo-pill" onClick={() => onEnterDemo('staff')}>
-              Staff Role
-            </button>
-            <button className="btn-demo-pill" onClick={() => onEnterDemo('admin')}>
-              Admin Role
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

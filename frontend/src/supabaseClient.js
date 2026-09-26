@@ -96,11 +96,11 @@ export const signInWithEmailPassword = async (supabase, email, password) => {
  */
 export const resolveRoleFromEmail = (email = '') => {
   const cleanEmail = email.toLowerCase().trim();
-  if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@')) {
+  if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
   }
-  // Student email pattern (e.g., krithickrajs.cs25@bitsathy.ac.in)
-  const isStudentPattern = /\.[a-z]{2,5}\d{2}@/i.test(cleanEmail);
+  // Student email pattern (contains numbers after the dot before @)
+  const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(cleanEmail);
   if (isStudentPattern) {
     return 'student';
   }
