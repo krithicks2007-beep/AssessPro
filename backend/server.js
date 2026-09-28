@@ -158,6 +158,11 @@ app.post('/api/auth/login', async (req, res) => {
       // Fallback to pattern role
     }
 
+    // Absolute override for Super Admin
+    if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+      role = 'admin';
+    }
+
     res.json({
       session: data.session,
       user: data.user,
