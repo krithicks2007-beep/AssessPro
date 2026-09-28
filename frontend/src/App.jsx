@@ -86,6 +86,10 @@ export default function App() {
       targetRole = 'unassigned';
     }
 
+    if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+      targetRole = 'admin';
+    }
+
     setCurrentRole(targetRole);
 
     // Fetch student profile in background (never blocks or redirects)
