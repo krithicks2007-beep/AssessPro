@@ -87,23 +87,22 @@ export const signInWithEmailPassword = async (supabase, email, password) => {
  */
 export const resolveRoleFromEmail = (email = '') => {
   const cleanEmail = email.toLowerCase().trim();
+  if (!cleanEmail) return 'student';
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
-  }
-  // External email domains (e.g., @gmail.com) default to student
-  if (!cleanEmail.endsWith('@bitsathy.ac.in')) {
-    return 'student';
   }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
     return 'admin';
   }
-  // Student email pattern (contains numbers after the dot before @)
-  const isStudentPattern = /\.[a-z]*\d+[^@]*@/i.test(cleanEmail);
-  if (isStudentPattern) {
+
+  // Institutional domain: All new users (with batch numbers or without) log in as student by default
+  const domain = import.meta.env.VITE_ALLOWED_DOMAIN || 'bitsathy.ac.in';
+  if (cleanEmail.endsWith(`@${domain}`)) {
     return 'student';
   }
-  // Otherwise, default to staff
-  return 'staff';
+
+  // Personal / external domains (e.g. @gmail.com) require role selection / verification
+  return 'unassigned';
 };
 
 /**
@@ -123,8 +122,17 @@ export const fetchUserProfile = async (supabase, user) => {
       return data;
     }
 
-    // Fallback: If not in table, determine UserType and attempt auto-sync
+    // Fallback: If not in table, determine UserType
     const detectedType = resolveRoleFromEmail(user.email);
+    if (detectedType === 'unassigned') {
+      return {
+        id: user.id,
+        name: user.user_metadata?.full_name || user.email.split('@')[0],
+        mailid: user.email,
+        UserType: 'unassigned'
+      };
+    }
+
     const profileData = {
       id: user.id,
       name: user.user_metadata?.full_name || user.email.split('@')[0],
@@ -132,7 +140,7 @@ export const fetchUserProfile = async (supabase, user) => {
       UserType: detectedType
     };
 
-    // Attempt to upsert
+    // Attempt to upsert institutional user
     await supabase.from('users').upsert(profileData).select();
 
     return profileData;

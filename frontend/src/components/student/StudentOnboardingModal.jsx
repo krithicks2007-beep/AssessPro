@@ -4,6 +4,10 @@ import { parseBitEmail, DEPARTMENT_MAP } from '../../utils/studentParser';
 
 export default function StudentOnboardingModal({ isOpen, onClose, user, studentProfile, onProfileSaved }) {
   if (!isOpen) return null;
+  return <StudentOnboardingModalInner isOpen={isOpen} onClose={onClose} user={user} studentProfile={studentProfile} onProfileSaved={onProfileSaved} />;
+}
+
+function StudentOnboardingModalInner({ isOpen, onClose, user, studentProfile, onProfileSaved }) {
 
   const email = user?.email || '';
   const isBitDomain = email.toLowerCase().endsWith('@bitsathy.ac.in');

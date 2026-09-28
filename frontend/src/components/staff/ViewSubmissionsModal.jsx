@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   X, 
   Users, 
@@ -14,32 +14,45 @@ import {
 import api from '../../api';
 
 export default function ViewSubmissionsModal({ isOpen, onClose, test }) {
-  if (!isOpen || !test) return null;
-
   const [submissions, setSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all'); // 'all' | 'flagged' | 'clean'
 
-  useEffect(() => {
-    loadSubmissions();
-  }, [test.id]);
-
-  const loadSubmissions = async () => {
+  const loadSubmissions = useCallback(async () => {
+    if (!test?.id) return;
     setLoading(true);
     try {
       const data = await api.getTestSubmissions(test.id);
-      setSubmissions(data || []);
+      const subMap = new Map();
+      (data || []).forEach(s => {
+        const email = (s.student_email || s.email || '').toLowerCase().trim();
+        const key = email || String(s.id);
+        if (!subMap.has(key)) {
+          subMap.set(key, s);
+        }
+      });
+      setSubmissions(Array.from(subMap.values()));
     } catch (err) {
       console.error('Error loading submissions:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [test?.id]);
+
+  useEffect(() => {
+    if (isOpen && test?.id) {
+      loadSubmissions();
+    }
+  }, [isOpen, test?.id, loadSubmissions]);
+
+  if (!isOpen || !test) return null;
 
   const filtered = submissions.filter(s => {
-    const matchesSearch = s.student_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          s.student_email.toLowerCase().includes(searchTerm.toLowerCase());
+    const sName = (s.student_name || 'Student').toLowerCase();
+    const sEmail = (s.student_email || '').toLowerCase();
+    const q = (searchTerm || '').toLowerCase();
+    const matchesSearch = sName.includes(q) || sEmail.includes(q);
     if (!matchesSearch) return false;
     if (filterType === 'flagged') return (s.tab_switch_count || 0) > 0;
     if (filterType === 'clean') return (s.tab_switch_count || 0) === 0;
@@ -263,7 +276,18 @@ export default function ViewSubmissionsModal({ isOpen, onClose, test }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(sub => {
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
+                    <Users size={32} color="#cbd5e1" style={{ margin: '0 auto 0.5rem', display: 'block' }} />
+                    <div style={{ fontWeight: 600, color: '#64748b' }}>No submissions recorded yet</div>
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                      Student scores and anti-cheating logs will appear here once submitted.
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filtered.map(sub => {
                 const hasViolations = (sub.tab_switch_count || 0) > 0;
                 
                 // Attendance Calculation
@@ -352,7 +376,8 @@ export default function ViewSubmissionsModal({ isOpen, onClose, test }) {
                     </td>
                   </tr>
                 );
-              })}
+              })
+              )}
             </tbody>
           </table>
         </div>

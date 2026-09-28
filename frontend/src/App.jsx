@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   getSupabaseClient, 
   getSupabaseConfig, 
@@ -13,21 +13,112 @@ import StaffLayout from './components/staff/StaffLayout';
 import AdminLayout from './components/admin/AdminLayout';
 import AuthErrorModal from './components/auth/AuthErrorModal';
 import StudentOnboardingModal from './components/student/StudentOnboardingModal';
+import RoleSelectionModal from './components/auth/RoleSelectionModal';
 import { isMasterAccount, parseBitEmail } from './utils/studentParser';
 import { GraduationCap, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function App() {
-  const [session, setSession] = useState(null);
+  const [, setSession] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [currentRole, setCurrentRole] = useState(null); // 'student' | 'staff' | 'admin'
   const [studentProfile, setStudentProfile] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [loadingProfile, setLoadingProfile] = useState(false);
   const [appActionSuccess, setAppActionSuccess] = useState('');
   const [appActionError, setAppActionError] = useState('');
 
   const { allowedDomain } = getSupabaseConfig();
+
+  const validateAndSetSession = useCallback(async (currentSession) => {
+    if (!currentSession?.user) {
+      return;
+    }
+
+    const user = currentSession.user;
+    const email = (user?.email || '').toLowerCase().trim();
+
+    // Save auth token for backend API requests
+    if (currentSession.access_token) {
+      localStorage.setItem('assesspro_auth_token', currentSession.access_token);
+    }
+
+    setAuthError('');
+    setSession(currentSession);
+    setCurrentUser(user);
+
+    // Determine verified role securely from the backend API
+    let targetRole = 'unassigned';
+    let isDeletedOrNew = false;
+    try {
+      const profileInfo = await api.getUserProfile();
+      if (profileInfo) {
+        if (profileInfo.role) targetRole = profileInfo.role;
+        if (profileInfo.isDeletedOrNew) isDeletedOrNew = true;
+      }
+    } catch (e) {
+      console.warn('Failed to securely fetch role from backend, falling back to client logic.', e);
+      targetRole = resolveRoleFromEmail(email);
+      
+      if (targetRole === 'unassigned' || targetRole === 'pending_staff') {
+        try {
+          const statusRes = await api.checkStaffRequestStatus(email);
+          if (statusRes?.role === 'staff' || statusRes?.status === 'approved') {
+            targetRole = 'staff';
+          } else if (statusRes?.role === 'student') {
+            targetRole = 'student';
+          } else if (statusRes?.status === 'pending' || statusRes?.role === 'pending_staff') {
+            targetRole = 'pending_staff';
+          }
+        } catch (_err) {}
+      }
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // If role is unassigned or profile is marked deleted/new:
+    if (targetRole === 'unassigned' || isDeletedOrNew) {
+      localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
+      localStorage.removeItem(`assesspro_role_${cleanEmail}`);
+      localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
+      localStorage.removeItem('assesspro_staff_student_mapping');
+      localStorage.removeItem('assesspro_staff_requests');
+      setStudentProfile(null);
+      targetRole = 'unassigned';
+    }
+
+    setCurrentRole(targetRole);
+
+    // Fetch student profile in background (never blocks or redirects)
+    if (targetRole === 'student') {
+      try {
+        let existingProf = null;
+
+        // 1. Try direct Supabase lookup
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          existingProf = await fetchStudentProfileDirect(supabase, cleanEmail);
+        }
+
+        // 2. Try cached profile in localStorage ONLY IF not deleted or new
+        if (!existingProf && !isDeletedOrNew) {
+          try {
+            const cached = localStorage.getItem(`assesspro_student_prof_${cleanEmail}`);
+            if (cached) existingProf = JSON.parse(cached);
+          } catch {}
+        }
+
+        if (existingProf) {
+          setStudentProfile(existingProf);
+        } else {
+          setStudentProfile(null);
+          // For any new student without a completed profile: open profile form
+          setShowOnboarding(true);
+        }
+      } catch (err) {
+        console.warn('Student profile check note:', err);
+      }
+    }
+  }, []);
 
   // Listen to Supabase auth state changes and initial session
   useEffect(() => {
@@ -35,7 +126,7 @@ export default function App() {
     if (window.location.hash && window.location.hash.includes('error=')) {
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const errorDesc = hashParams.get('error_description') || hashParams.get('error') || 'Authentication failed';
-      setAuthError(`Sign-in rejected: ${decodeURIComponent(errorDesc)}`);
+      setTimeout(() => setAuthError(`Sign-in rejected: ${decodeURIComponent(errorDesc)}`), 0);
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -44,7 +135,7 @@ export default function App() {
       const searchParams = new URLSearchParams(window.location.search);
       const errorDesc = searchParams.get('error_description') || searchParams.get('error') || 'OAuth state expired or invalid';
       const cleanDesc = decodeURIComponent(errorDesc).replace(/\+/g, ' ');
-      setAuthError(`Google Sign-In Session: ${cleanDesc}. Please click 'Continue with Google' again or use the Demo Faculty button below.`);
+      setTimeout(() => setAuthError(`Google Sign-In failed: ${cleanDesc}. Please click 'Continue with Google' again to retry.`), 0);
       window.history.replaceState(null, '', window.location.pathname);
     }
 
@@ -76,68 +167,32 @@ export default function App() {
       }
     });
 
+    const handleSessionExpired = async () => {
+      setAuthError('Your session has expired. Please log in again.');
+      await supabase.auth.signOut();
+      setSession(null);
+      setCurrentUser(null);
+      setCurrentRole(null);
+      localStorage.removeItem('assesspro_auth_token');
+    };
+    window.addEventListener('session-expired', handleSessionExpired);
+
     return () => {
       isMounted = false;
       subscription?.unsubscribe();
+      window.removeEventListener('session-expired', handleSessionExpired);
     };
-  }, []);
-
-  const validateAndSetSession = async (currentSession) => {
-    if (!currentSession?.user) {
-      return;
-    }
-
-    const user = currentSession.user;
-    const email = (user?.email || '').toLowerCase().trim();
-
-    // Save auth token for backend API requests
-    if (currentSession.access_token) {
-      localStorage.setItem('assesspro_auth_token', currentSession.access_token);
-    }
-
-    setAuthError('');
-    setSession(currentSession);
-    setCurrentUser(user);
-
-    // Determine verified role:
-    // - krithickrajs.cs25@bitsathy.ac.in is Super Admin
-    // - BIT emails follow institutional logic (student if regex matches, else staff)
-    // - ALL other external emails (e.g., @gmail.com) default to student role
-    let targetRole = resolveRoleFromEmail(email);
-    setCurrentRole(targetRole);
-    setLoadingProfile(false);
-
-    // Fetch student profile in background (never blocks or redirects)
-    if (targetRole === 'student') {
-      try {
-        const cleanEmail = email.toLowerCase().trim();
-        let existingProf = null;
-
-        // 1. Try direct Supabase lookup
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          existingProf = await fetchStudentProfileDirect(supabase, cleanEmail);
-        }
-
-        // 2. Try cached profile in localStorage
-        if (!existingProf) {
-          try {
-            const cached = localStorage.getItem(`assesspro_student_prof_${cleanEmail}`);
-            if (cached) existingProf = JSON.parse(cached);
-          } catch {}
-        }
-
-        if (existingProf) {
-          setStudentProfile(existingProf);
-        }
-      } catch (err) {
-        console.warn('Student profile check note:', err);
-      }
-    }
-  };
+  }, [validateAndSetSession]);
 
   const handleSignOut = async () => {
     localStorage.removeItem('assesspro_auth_token');
+    const cleanEmail = (currentUser?.email || '').toLowerCase().trim();
+    if (cleanEmail) {
+      localStorage.removeItem(`assesspro_role_${cleanEmail}`);
+      localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
+      localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
+    }
+    localStorage.removeItem('assesspro_staff_student_mapping');
     const supabase = getSupabaseClient();
     if (supabase) {
       await supabase.auth.signOut();
@@ -273,6 +328,22 @@ export default function App() {
           </div>
         )}
 
+        {(currentRole === 'unassigned' || currentRole === 'pending_staff') && (
+          <RoleSelectionModal
+            user={currentUser}
+            onRoleConfirmed={(role) => {
+              setCurrentRole(role);
+              if (role === 'student') {
+                const cleanEmail = (currentUser?.email || '').toLowerCase().trim();
+                localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
+                setStudentProfile(null);
+                setShowOnboarding(true);
+              }
+            }}
+            onSignOut={handleSignOut}
+          />
+        )}
+
         {currentRole === 'student' && (
           <StudentLayout 
             user={currentUser} 
@@ -384,8 +455,8 @@ export default function App() {
 
         <LoginPage
           onLoginSuccess={(user) => {
-            setCurrentUser(user);
-            setCurrentRole(resolveRoleFromEmail(user?.email || ''));
+            const token = localStorage.getItem('assesspro_auth_token');
+            validateAndSetSession({ user, access_token: token });
           }}
           onEnterDemo={handleEnterDemo}
         />

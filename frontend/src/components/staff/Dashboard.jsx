@@ -52,9 +52,9 @@ export default function Dashboard({
           <Users size={24} />
         </div>
         <div className="kpi-info">
-          <span className="kpi-val">245</span>
+          <span className="kpi-val">0</span>
           <span className="kpi-label">Total Students</span>
-          <span className="kpi-sub">III Year - Mechatronics</span>
+          <span className="kpi-sub">Across All Groups</span>
         </div>
       </div>
 
@@ -74,7 +74,7 @@ export default function Dashboard({
           <BarChart2 size={24} />
         </div>
         <div className="kpi-info">
-          <span className="kpi-val">76%</span>
+          <span className="kpi-val">0%</span>
           <span className="kpi-label">Average Score</span>
           <span className="kpi-sub">All Tests</span>
         </div>
@@ -98,12 +98,12 @@ export default function Dashboard({
 
         <div className="bar-chart-container">
           {[
-            { month: 'Apr', value: 68 },
-            { month: 'May', value: 72 },
-            { month: 'Jun', value: 76 },
-            { month: 'Jul', value: 82 },
-            { month: 'Aug', value: 78 },
-            { month: 'Sep', value: 80 }
+            { month: 'Apr', value: 0 },
+            { month: 'May', value: 0 },
+            { month: 'Jun', value: 0 },
+            { month: 'Jul', value: 0 },
+            { month: 'Aug', value: 0 },
+            { month: 'Sep', value: 0 }
           ].map(({ month, value }) => (
             <div key={month} className="bar-col">
               <span className="bar-value">{value}%</span>
@@ -138,11 +138,12 @@ export default function Dashboard({
         </div>
 
         <div className="rings-container" style={{ flexWrap: 'wrap', gap: '1rem' }}>
-          {groups.map((group, idx) => {
+          {groups.length === 0 ? (
+            <div style={{ color: '#9ca3af', fontSize: '0.85rem', padding: '1rem' }}>No groups found.</div>
+          ) : groups.map((group, idx) => {
             const ringColor = group.color || groupColors[idx % groupColors.length];
-            const defaultAverages = [82, 74, 79, 76, 81, 78];
-            const avg = defaultAverages[idx % defaultAverages.length];
-            const groupTestsCount = tests.filter(t => t.group_id === group.id).length || 4;
+            const avg = 0; // Pure live data calculation should go here
+            const groupTestsCount = tests.filter(t => t.group_id === group.id).length;
 
             return (
               <div key={group.id} className="ring-item" style={{ minWidth: '110px' }}>
@@ -196,42 +197,44 @@ export default function Dashboard({
               </tr>
             </thead>
             <tbody>
-              {(tests.length > 0 ? tests.slice(0, 6) : [
-                { id: 1, title: 'Engineering Mathematics', group_name: 'Group 1', date: '10 Sep 2026 10:00 AM', students: 120, avg: '85%', status: 'completed' },
-                { id: 2, title: 'Mechanics', group_name: 'Group 1', date: '15 Sep 2026 02:00 PM', students: 118, avg: '78%', status: 'completed' },
-                { id: 3, title: 'Thermodynamics', group_name: 'Group 1', date: '20 Sep 2026 10:00 AM', students: 120, avg: '92%', status: 'completed' },
-                { id: 4, title: 'Fluid Mechanics', group_name: 'Group 1', date: '25 Sep 2026 02:00 PM', students: 119, avg: '76%', status: 'published' },
-                { id: 5, title: 'Digital Electronics', group_name: 'Group 2', date: '12 Sep 2026 10:00 AM', students: 120, avg: '80%', status: 'completed' }
-              ]).map((test, idx) => (
-                <tr key={test.id || idx}>
-                  <td>{idx + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{test.title}</td>
-                  <td>
-                    <span className="group-badge-blue">
-                      {test.groups ? `Group ${test.groups.group_number}: ${test.groups.name}` : (test.group_name || 'Group 1')}
-                    </span>
-                  </td>
-                  <td style={{ color: '#6b7280', fontSize: '0.74rem' }}>
-                    {test.scheduled_date ? new Date(test.scheduled_date).toLocaleDateString() : (test.date || 'Today')}
-                  </td>
-                  <td>{test.students || 120}</td>
-                  <td style={{ fontWeight: 700 }}>{test.avg || '82%'}</td>
-                  <td>
-                    <span className={test.status === 'published' ? 'status-pill-published' : 'status-pill-completed'}>
-                      {test.status === 'published' ? 'Published' : 'Completed'}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      className="btn-table-view"
-                      onClick={() => onViewSubmissions(test)}
-                      title="View student marks & anti-cheating report"
-                    >
-                      View
-                    </button>
+              {tests.length === 0 ? (
+                <tr>
+                  <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                    No recent tests found.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                tests.slice(0, 6).map((test, idx) => (
+                  <tr key={test.id || idx}>
+                    <td>{idx + 1}</td>
+                    <td style={{ fontWeight: 600 }}>{test.title}</td>
+                    <td>
+                      <span className="group-badge-blue">
+                        {test.groups ? `Group ${test.groups.group_number}: ${test.groups.name}` : (test.group_name || 'Group')}
+                      </span>
+                    </td>
+                    <td style={{ color: '#6b7280', fontSize: '0.74rem' }}>
+                      {test.scheduled_date ? new Date(test.scheduled_date).toLocaleDateString() : (test.date || 'Unknown')}
+                    </td>
+                    <td>{test.students || 0}</td>
+                    <td style={{ fontWeight: 700 }}>{test.avg || '0%'}</td>
+                    <td>
+                      <span className={test.status === 'published' ? 'status-pill-published' : 'status-pill-completed'}>
+                        {test.status === 'published' ? 'Published' : (test.status || 'Draft')}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="btn-table-view"
+                        onClick={() => onViewSubmissions(test)}
+                        title="View student marks & anti-cheating report"
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -248,59 +251,8 @@ export default function Dashboard({
         </div>
 
         <div className="activity-feed">
-          <div className="activity-item">
-            <div className="activity-icon" style={{ background: '#dbeafe', color: '#1d72fe' }}>
-              <Plus size={15} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-title">New test created</div>
-              <div className="activity-desc">PLC and HMI - Group 3</div>
-            </div>
-            <div className="activity-time">2 hours ago</div>
-          </div>
-
-          <div className="activity-item">
-            <div className="activity-icon" style={{ background: '#ede9fe', color: '#8b5cf6' }}>
-              <Send size={14} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-title">Test published</div>
-              <div className="activity-desc">Industrial Automation - Group 3</div>
-            </div>
-            <div className="activity-time">5 hours ago</div>
-          </div>
-
-          <div className="activity-item">
-            <div className="activity-icon" style={{ background: '#d1fae5', color: '#10b981' }}>
-              <CheckCircle2 size={15} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-title">Results published</div>
-              <div className="activity-desc">Thermodynamics - Group 1</div>
-            </div>
-            <div className="activity-time">1 day ago</div>
-          </div>
-
-          <div className="activity-item">
-            <div className="activity-icon" style={{ background: '#ffedd5', color: '#f97316' }}>
-              <Edit3 size={14} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-title">Test updated</div>
-              <div className="activity-desc">Sensors and Instrumentation - Group 2</div>
-            </div>
-            <div className="activity-time">2 days ago</div>
-          </div>
-
-          <div className="activity-item">
-            <div className="activity-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>
-              <UserPlus size={14} />
-            </div>
-            <div className="activity-content">
-              <div className="activity-title">Students enrolled</div>
-              <div className="activity-desc">15 students added to Group 2</div>
-            </div>
-            <div className="activity-time">3 days ago</div>
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem' }}>
+            No recent activity recorded.
           </div>
         </div>
       </div>

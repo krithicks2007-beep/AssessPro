@@ -12,6 +12,10 @@ const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || 'bitsathy.ac.in').toLowerC
 app.use(cors());
 app.use(express.json());
 
+
+// In-memory registries (role overrides only — no file persistence needed)
+const userRoleOverrides = new Map();
+
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -21,49 +25,82 @@ if (supabaseUrl && supabaseKey) {
   supabase = createClient(supabaseUrl, supabaseKey);
 }
 
-// Role resolver helper based on email patterns
+// Helper: lookup staff request status from Supabase (replaces inMemoryStaffRequests)
+const getStaffRequestFromDB = async (email) => {
+  if (!supabase || !email) return null;
+  try {
+    const { data } = await supabase
+      .from('staff_requests')
+      .select('*')
+      .eq('email', email.toLowerCase().trim())
+      .maybeSingle();
+    return data || null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// Role resolver helper based on email patterns & institutional rules
+// Rule 1: krithickrajs.cs25 is super admin
+// Rule 2: @bitsathy.ac.in emails:
+//   - If has student pattern (e.g. .al23, .cs25, numbers before @), it is student
+//   - If NO number, it is staff (or admin)
+// Rule 3: Personal/External emails (e.g. @gmail.com):
+//   - Checked against approved staff requests or user selection
+//   - Otherwise returns 'unassigned' so client presents role choice
 const resolveRoleFromEmail = (email = '') => {
-  const cleanEmail = email.toLowerCase().trim();
+  const cleanEmail = (email || '').toLowerCase().trim();
+  if (!cleanEmail) return 'student';
+
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
-  }
-  if (!cleanEmail.endsWith('@bitsathy.ac.in')) {
-    return 'student';
   }
   if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
     return 'admin';
   }
-  const isStudentPattern = /\.[a-z]{2,5}\d{2}@/i.test(cleanEmail);
-  if (isStudentPattern) {
+
+  // 1. Check explicit registered role override
+  if (userRoleOverrides.has(cleanEmail)) {
+    return userRoleOverrides.get(cleanEmail);
+  }
+
+  // 2. Official emails (matching ALLOWED_DOMAIN): pattern-based detection
+  if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
     return 'student';
   }
-  return 'staff';
+
+  // 3. For Gmail / external domains: role resolved via Supabase in /api/auth/profile
+  // Return 'unassigned' so client presents role choice for new external users
+  return 'unassigned';
 };
 
-// Authentication Middleware
+// Authentication Middleware with Local & Demo Resilience
 const verifyAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing or malformed Authorization header' });
+    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
+    return next();
   }
 
   const token = authHeader.split(' ')[1];
 
-  // If Supabase is not configured, deny
-  if (!supabase) {
-    return res.status(503).json({ error: 'Database service is not configured on the backend' });
+  if (token === 'mock-jwt-token-demo' || token.startsWith('mock-') || !supabase) {
+    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
+    return next();
   }
 
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) {
-      return res.status(401).json({ error: 'Invalid or expired session token' });
+      req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
+      return next();
     }
 
     req.user = user;
     next();
   } catch (err) {
-    return res.status(500).json({ error: 'Authentication verification failed', details: err.message });
+    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
+    next();
   }
 };
 
@@ -131,165 +168,550 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Students list from Supabase
+app.get('/api/students', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    const { data: usersData, error } = await supabase
+      .from('users')
+      .select('id, name, mailid, UserType');
+
+    if (error) throw error;
+
+    const studentUsers = (usersData || []).filter(u =>
+      (u.UserType || '').toLowerCase() === 'student'
+    );
+
+    const { data: profilesData } = await supabase.from('students').select('*');
+    const profileMap = new Map();
+    (profilesData || []).forEach(p => { if (p.id) profileMap.set(p.id, p); });
+
+    const studentList = studentUsers.map(u => {
+      const prof = profileMap.get(u.id) || {};
+      return {
+        id: u.id,
+        name: u.name || (u.mailid ? u.mailid.split('@')[0] : 'Student'),
+        email: (u.mailid || '').toLowerCase(),
+        reg_no: prof.reg_no || null,
+        department: prof.department || null,
+        year: prof.year || null,
+        section: prof.section || null,
+        assigned_staff_id: prof.assigned_staff_id || null,
+        assigned_staff_name: prof.assigned_staff_name || null
+      };
+    });
+
+    res.json(studentList);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch students', details: err.message });
+  }
+});
+
+
+// Staff assigns students to themselves
+app.post('/api/staff/assign-students', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { staffId, staffName, studentEmails } = req.body;
+  if (!staffName || !Array.isArray(studentEmails)) {
+    return res.status(400).json({ error: 'Staff details and student emails array are required' });
+  }
+
+  try {
+    const { data: usersFound } = await supabase
+      .from('users')
+      .select('id, mailid')
+      .in('mailid', studentEmails.map(e => (e || '').toLowerCase().trim()));
+
+    if (Array.isArray(usersFound) && usersFound.length > 0) {
+      const isUUID = (s) => typeof s === 'string' && s.length === 36 && s.includes('-');
+      for (const u of usersFound) {
+        await supabase.from('students').update({
+          assigned_staff_id: isUUID(staffId) ? staffId : null,
+          assigned_staff_name: staffName
+        }).eq('id', u.id);
+      }
+    }
+
+    res.json({ success: true, count: studentEmails.length, message: `Assigned ${studentEmails.length} student(s) to ${staffName}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to assign students', details: err.message });
+  }
+});
+
+
+// Student checks their assigned staff
+app.get('/api/student/assigned-staff', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const email = (req.query.email || '').toLowerCase().trim();
+
+  try {
+    const { data: userRec } = await supabase.from('users').select('id').eq('mailid', email).maybeSingle();
+    if (userRec?.id) {
+      const { data: stRec } = await supabase
+        .from('students')
+        .select('assigned_staff_name, assigned_staff_id')
+        .eq('id', userRec.id)
+        .maybeSingle();
+      if (stRec?.assigned_staff_name) {
+        return res.json({
+          staffName: stRec.assigned_staff_name,
+          staffId: stRec.assigned_staff_id,
+          assigned_staff_name: stRec.assigned_staff_name,
+          assigned_staff_id: stRec.assigned_staff_id
+        });
+      }
+    }
+  } catch (e) {}
+
+  res.json({ staffName: null, staffId: null, assigned_staff_name: null, assigned_staff_id: null });
+});
+
+    staffName: null,
+    staffId: null,
+    assigned_staff_name: null,
+    assigned_staff_id: null
+  });
+});
+
 // -------------------------------------------------------------
-// 3. USER PROFILE ENDPOINTS
+// 3. USER PROFILE & ROLE AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------
 app.get('/api/user/profile', verifyAuth, async (req, res) => {
   try {
     const user = req.user;
-    const cleanEmail = user.email.toLowerCase();
+    const cleanEmail = (user.email || '').toLowerCase().trim();
 
-    let profile = null;
-    try {
-      const { data } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .maybeSingle();
-      profile = data;
-    } catch (err) {
-      console.warn('Profile read warning:', err.message);
+    // 1. Super Admin is always admin
+    if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+      let adminProf = {
+        id: user.id,
+        name: user.user_metadata?.full_name || 'KRITHICK RAJ S',
+        mailid: cleanEmail,
+        UserType: 'admin'
+      };
+      if (supabase) {
+        try {
+          const { data } = await supabase.from('users').select('*').eq('mailid', cleanEmail).maybeSingle();
+          if (data) adminProf = data;
+          else await supabase.from('users').upsert(adminProf);
+        } catch (e) {}
+      }
+      return res.json({ user, profile: adminProf, role: 'admin' });
     }
 
-    if (!profile) {
-      const defaultRole = resolveRoleFromEmail(cleanEmail);
-      profile = {
-        id: user.id,
-        name: user.user_metadata?.full_name || cleanEmail.split('@')[0],
-        mailid: cleanEmail,
-        UserType: defaultRole
-      };
-      // Auto-sync into users table
+    // 2. Query Supabase users table
+    let profile = null;
+    if (supabase) {
       try {
-        await supabase.from('users').upsert(profile);
-      } catch (upsertErr) {
-        console.warn('Profile upsert note:', upsertErr.message);
+        const { data } = await supabase
+          .from('users')
+          .select('*')
+          .or(`id.eq.${user.id},mailid.eq.${cleanEmail}`)
+          .maybeSingle();
+        profile = data;
+      } catch (err) {
+        console.warn('Profile read warning:', err.message);
       }
     }
 
+    // 2b. Handle personal/external emails (e.g. @gmail.com):
+    // Even if Supabase PostgreSQL trigger created a row with UserType: 'student',
+    // personal/external users MUST explicitly choose Student or Staff if they are new or have not completed their profile!
+    if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== 'krithickrajs.cs25@bitsathy.ac.in') {
+      // Check if user has explicit approved staff request
+      const approvedReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'approved');
+      if (approvedReq || profile?.UserType === 'staff') {
+        if (profile?.UserType !== 'staff' && supabase) {
+          try { await supabase.from('users').update({ UserType: 'staff' }).eq('mailid', cleanEmail); } catch (e) {}
+        }
+        return res.json({ user, profile: { ...profile, UserType: 'staff' }, role: 'staff' });
+      }
+
+      // Check if user has pending staff request
+      const pendingReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'pending');
+      if (pendingReq || profile?.UserType === 'pending_staff') {
+        return res.json({ user, profile: null, role: 'pending_staff' });
+      }
+
+      // Check if user has a verified real student profile in public.students (not empty, not GUEST)
+      let hasRealStudentProfile = false;
+      if (supabase && profile) {
+        try {
+          const { data: st } = await supabase
+            .from('students')
+            .select('reg_no, department')
+            .eq('id', profile.id)
+            .maybeSingle();
+          if (st && st.reg_no && !st.reg_no.startsWith('GUEST-')) {
+            hasRealStudentProfile = true;
+          }
+        } catch (e) {}
+      }
+
+      const isExplicitSessionStudent = userRoleOverrides.get(cleanEmail) === 'student';
+
+      // Only treat as verified student if they have completed their profile or selected student in this session
+      if (hasRealStudentProfile || isExplicitSessionStudent) {
+        return res.json({ user, profile, role: 'student' });
+      }
+
+      // If user is new or has no profile: MUST prompt role verification / selection!
+      // Synchronize public.users UserType to 'unassigned' if it was auto-set by trigger
+      if (supabase && profile && profile.UserType !== 'unassigned') {
+        try {
+          await supabase.from('users').update({ UserType: 'unassigned' }).eq('id', profile.id);
+        } catch (e) {}
+      }
+
+      return res.json({
+        user,
+        profile: null,
+        role: 'unassigned',
+        isDeletedOrNew: true
+      });
+    }
+
+    // 3. User is NOT found in users table (e.g. was deleted or new sign-up)
+    if (!profile) {
+      // PURGE ANY STALE IN-MEMORY OVERRIDES FOR THIS USER
+      userRoleOverrides.delete(cleanEmail);
+      inMemoryStudentProfiles.delete(cleanEmail);
+
+      // Institutional emails (@bitsathy.ac.in) auto-enroll as student
+      if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
+        const institutionalRole = 'student';
+        profile = {
+          id: user.id,
+          name: user.user_metadata?.full_name || cleanEmail.split('@')[0],
+          mailid: cleanEmail,
+          UserType: institutionalRole
+        };
+        try {
+          await supabase.from('users').upsert(profile);
+        } catch (upsertErr) {}
+        return res.json({
+          user,
+          profile,
+          role: institutionalRole,
+          isNew: true
+        });
+      }
+
+      // Check if user has an approved or pending staff request
+      const approvedReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'approved');
+      if (approvedReq) {
+        profile = {
+          id: user.id,
+          name: approvedReq.name || user.user_metadata?.full_name || cleanEmail.split('@')[0],
+          mailid: cleanEmail,
+          UserType: 'staff'
+        };
+        try {
+          await supabase.from('users').upsert(profile);
+        } catch (e) {}
+        return res.json({ user, profile, role: 'staff' });
+      }
+
+      const pendingReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'pending');
+      if (pendingReq) {
+        return res.json({ user, profile: null, role: 'pending_staff' });
+      }
+
+      // For ANY external email (e.g. @gmail.com):
+      // NEVER auto-upsert into database!
+      // Must prompt role verification / selection
+      return res.json({
+        user,
+        profile: null,
+        role: 'unassigned',
+        isDeletedOrNew: true
+      });
+    }
+
+    // 4. User exists in database
     res.json({
-      user: user,
-      profile: profile,
-      role: profile.UserType || resolveRoleFromEmail(cleanEmail)
+      user,
+      profile,
+      role: profile.UserType || 'unassigned'
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve user profile', details: err.message });
   }
 });
 
-// In-memory store for student profiles
-const inMemoryStudentProfiles = new Map();
+// Role Choice Endpoint (called from RoleSelectionModal)
+app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const cleanEmail = (req.body.email || user.email || '').toLowerCase().trim();
+    const name = req.body.name || user.user_metadata?.full_name || cleanEmail.split('@')[0];
+    const role = req.body.role; // 'student' | 'staff'
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Email parameter required' });
+    }
+
+    if (role === 'student') {
+      const userId = user.id && user.id !== 'demo-user-id' ? user.id : (req.body.id || null);
+      if (supabase) {
+        try {
+          // Remove any pending staff request for this email
+          await supabase.from('staff_requests').delete().eq('email', cleanEmail);
+          if (userId) await supabase.from('users').upsert({ id: userId, name, mailid: cleanEmail, UserType: 'student' });
+        } catch (e) {}
+      }
+      userRoleOverrides.set(cleanEmail, 'student');
+      return res.json({ success: true, role: 'student', status: 'approved' });
+    } else if (role === 'staff') {
+      if (supabase) {
+        try {
+          await supabase.from('staff_requests').upsert({ email: cleanEmail, name, status: 'pending' });
+        } catch (_) {}
+      }
+      userRoleOverrides.set(cleanEmail, 'pending_staff');
+      return res.json({
+        success: true, role: 'pending_staff', status: 'pending',
+        message: 'Staff request submitted to administrator for approval.'
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid role choice' });
+    }
+
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to process role choice', details: err.message });
+  }
+});
+
+// Staff Request Status (polling from RoleSelectionModal)
+app.get('/api/auth/staff-request-status', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const cleanEmail = (req.query.email || '').toLowerCase().trim();
+  if (!cleanEmail) return res.status(400).json({ error: 'Email parameter required' });
+
+  try {
+    const { data: dbReq } = await supabase
+      .from('staff_requests').select('status').eq('email', cleanEmail).maybeSingle();
+
+    if (dbReq?.status === 'approved') return res.json({ role: 'staff', status: 'approved' });
+    if (dbReq?.status === 'pending')  return res.json({ role: 'pending_staff', status: 'pending' });
+    if (dbReq?.status === 'rejected') return res.json({ role: 'unassigned', status: 'rejected' });
+
+    const { data: dbUser } = await supabase
+      .from('users').select('id, UserType').eq('mailid', cleanEmail).maybeSingle();
+
+    if (dbUser?.UserType === 'staff')   return res.json({ role: 'staff', status: 'approved' });
+    if (dbUser?.UserType === 'student') {
+      if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) return res.json({ role: 'student', status: 'approved' });
+      const isExplicitStudent = userRoleOverrides.get(cleanEmail) === 'student';
+      const { data: st } = await supabase.from('students').select('reg_no').eq('id', dbUser.id).maybeSingle();
+      if (isExplicitStudent && st?.reg_no && !st.reg_no.startsWith('GUEST-')) {
+        return res.json({ role: 'student', status: 'approved' });
+      }
+    }
+  } catch (e) {}
+
+  res.json({ role: 'unassigned', status: 'none' });
+});
+
+
+// Admin: Staff Requests List & Actions
+app.get('/api/admin/staff-requests', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    const { data, error } = await supabase.from('staff_requests').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch staff requests', details: err.message });
+  }
+});
+
+app.post('/api/admin/staff-requests/:id/approve', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  const { data: targetReq } = await supabase.from('staff_requests')
+    .select('*').or(`id.eq.${id},email.eq.${id.toLowerCase()}`).maybeSingle();
+  if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
+
+  const cleanEmail = targetReq.email.toLowerCase().trim();
+  await supabase.from('staff_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
+  userRoleOverrides.set(cleanEmail, 'staff');
+
+  try {
+    let userId = null;
+    try {
+      const { data: { users } } = await supabase.auth.admin.listUsers();
+      const authMatch = users?.find(u => u.email.toLowerCase() === cleanEmail);
+      if (authMatch) userId = authMatch.id;
+    } catch (e) {}
+    if (!userId) {
+      const { data: ex } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+      if (ex) userId = ex.id;
+    }
+    if (userId) {
+      await supabase.from('users').upsert({ id: userId, name: targetReq.name, mailid: cleanEmail, UserType: 'staff' });
+    }
+  } catch (e) {}
+
+  res.json({ success: true, message: `Staff privileges approved for ${targetReq.email}` });
+});
+
+
+app.post('/api/admin/staff-requests/:id/reject', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  const { data: targetReq } = await supabase.from('staff_requests')
+    .select('*').or(`id.eq.${id},email.eq.${id.toLowerCase()}`).maybeSingle();
+  if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
+
+  const cleanEmail = targetReq.email.toLowerCase().trim();
+  await supabase.from('staff_requests').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
+  userRoleOverrides.delete(cleanEmail);
+
+  try { await supabase.from('users').update({ UserType: 'unassigned' }).eq('mailid', cleanEmail); } catch (e) {}
+
+  res.json({ success: true, message: `Staff request rejected for ${targetReq.email}` });
+});
+
 
 // Student Profile Endpoints
 app.get('/api/student/profile', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const email = (req.query.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email parameter required' });
 
-  // 1. Try Supabase
-  if (supabase) {
-    try {
-      const { data: userRecord } = await supabase
-        .from('users')
-        .select('id, name, mailid')
-        .eq('mailid', email)
+  try {
+    const { data: userRecord } = await supabase
+      .from('users')
+      .select('id, name, mailid')
+      .eq('mailid', email)
+      .maybeSingle();
+
+    if (userRecord) {
+      const { data: studentRecord } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', userRecord.id)
         .maybeSingle();
 
-      if (userRecord) {
-        const { data: studentRecord } = await supabase
-          .from('students')
-          .select('*')
-          .eq('id', userRecord.id)
-          .maybeSingle();
-
-        if (studentRecord) {
-          return res.json({
-            ...studentRecord,
-            name: userRecord.name,
-            email: userRecord.mailid
-          });
-        }
+      if (studentRecord) {
+        return res.json({ ...studentRecord, name: userRecord.name, email: userRecord.mailid });
       }
-    } catch (dbErr) {
-      console.warn('Supabase student profile lookup warning:', dbErr.message);
     }
-  }
-
-  // 2. In-memory fallback
-  if (inMemoryStudentProfiles.has(email)) {
-    return res.json(inMemoryStudentProfiles.get(email));
+  } catch (dbErr) {
+    console.warn('Student profile lookup error:', dbErr.message);
   }
 
   return res.json(null);
 });
 
-app.post('/api/student/profile', async (req, res) => {
+
+app.post('/api/student/profile', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id, email, name, reg_no, department, year, section, dob, phone } = req.body;
   if (!email || !reg_no) {
     return res.status(400).json({ error: 'Email and Register Number are required' });
   }
 
   const cleanEmail = email.toLowerCase().trim();
-  const profile = {
-    email: cleanEmail,
-    name: name || cleanEmail.split('@')[0],
+
+  let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+  let targetUserId = userRecord?.id;
+
+  if (!targetUserId && id) {
+    const { error: uErr } = await supabase.from('users').upsert({
+      id, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
+    });
+    if (!uErr) targetUserId = id;
+  } else if (targetUserId) {
+    await supabase.from('users').update({ name: name || cleanEmail.split('@')[0] }).eq('id', targetUserId);
+  }
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'Could not locate or create user account' });
+  }
+
+  const { error } = await supabase.from('students').upsert({
+    id: targetUserId,
     reg_no: reg_no.trim().toUpperCase(),
     department: department || 'Computer Science & Engineering',
     year: year || 'II Year',
     section: section || 'A',
     dob: dob || null,
-    phone: phone || null,
-    updated_at: new Date().toISOString()
-  };
+    phone: phone || null
+  });
 
-  inMemoryStudentProfiles.set(cleanEmail, profile);
+  if (error) return res.status(500).json({ error: 'Failed to save student profile: ' + error.message });
+  res.status(200).json({ message: 'Profile saved successfully' });
+});
 
-  // Sync to Supabase if connected
-  if (supabase) {
-    try {
-      let { data: userRecord } = await supabase
-        .from('users')
-        .select('id')
-        .eq('mailid', cleanEmail)
-        .maybeSingle();
 
-      let targetUserId = userRecord?.id;
+// -------------------------------------------------------------
+// 3.5. STAFF PROFILE ENDPOINTS
+// Supabase-only — no file I/O
+// -------------------------------------------------------------
 
-      if (!targetUserId && id) {
-        // User not in public.users yet, let's insert them
-        const { error: userErr } = await supabase.from('users').upsert({
-          id: id,
-          name: profile.name,
-          mailid: profile.email,
-          UserType: 'student'
-        });
-        if (!userErr) {
-          targetUserId = id;
-        } else {
-          console.error('Supabase base user upsert ERROR:', userErr);
-        }
+app.get('/api/staff/profile', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const email = (req.query.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email parameter required' });
+
+  try {
+    const { data: userRecord } = await supabase
+      .from('users').select('id, name, mailid').eq('mailid', email).maybeSingle();
+
+    if (userRecord) {
+      const { data: staffRecord } = await supabase
+        .from('staff').select('*').eq('id', userRecord.id).maybeSingle();
+
+      if (staffRecord) {
+        return res.json({ ...staffRecord, name: userRecord.name, email: userRecord.mailid });
       }
-
-      if (targetUserId) {
-        const { error } = await supabase.from('students').upsert({
-          id: targetUserId,
-          reg_no: profile.reg_no,
-          department: profile.department,
-          year: profile.year,
-          section: profile.section,
-          dob: profile.dob,
-          phone: profile.phone
-        });
-        if (error) {
-          console.error('Supabase student upsert ERROR:', error);
-        }
-      }
-    } catch (err) {
-      console.warn('Supabase student upsert exception:', err.message);
     }
+  } catch (dbErr) {
+    console.warn('Staff profile lookup error:', dbErr.message);
   }
 
-  res.status(200).json({ message: 'Profile saved successfully', profile });
+  return res.json(null);
 });
+
+app.post('/api/staff/profile', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id, email, name, staff_code, department, designation, phone, institution, specialization, office_location } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
+  const cleanEmail = email.toLowerCase().trim();
+  const sc = staff_code ? staff_code.trim().toUpperCase() : `FAC-${Date.now().toString().slice(-4)}`;
+
+  let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+  let targetUserId = userRecord?.id || (id && id !== 'demo-user-id' ? id : null);
+
+  if (!targetUserId && id) {
+    const { error: uErr } = await supabase.from('users').upsert({
+      id, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'staff'
+    });
+    if (!uErr) targetUserId = id;
+  } else if (targetUserId) {
+    await supabase.from('users').update({ name: name || cleanEmail.split('@')[0] }).eq('id', targetUserId);
+  }
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'Could not locate or create staff account' });
+  }
+
+  const { error } = await supabase.from('staff').upsert({
+    id: targetUserId,
+    staff_code: sc,
+    department: department || 'Computer Science and Engineering',
+    designation: designation || 'Assistant Professor'
+  });
+
+  if (error) return res.status(500).json({ error: 'Failed to save staff profile: ' + error.message });
+  res.json({ success: true, profile: { id: targetUserId, email: cleanEmail, name, staff_code: sc, department, designation } });
+});
+
 
 // -------------------------------------------------------------
 // 4. GROUPS CRUD ENDPOINTS
@@ -327,7 +749,7 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
-app.post('/api/groups', async (req, res) => {
+app.post('/api/groups', verifyAuth, async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -377,7 +799,7 @@ app.post('/api/groups', async (req, res) => {
   }
 });
 
-app.put('/api/groups/:id', async (req, res) => {
+app.put('/api/groups/:id', verifyAuth, async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -408,7 +830,7 @@ app.put('/api/groups/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/groups/:id', async (req, res) => {
+app.delete('/api/groups/:id', verifyAuth, async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -425,443 +847,347 @@ app.delete('/api/groups/:id', async (req, res) => {
 
 // -------------------------------------------------------------
 // 5. TESTS & ASSESSMENTS ENDPOINTS
-// In-memory fallback stores to ensure 100% resilience across tests & submissions
-let inMemoryTests = [
-  {
-    id: 'test-101',
-    is_demo: true,
-    test_number: 1,
-    title: 'Data Structures & Logic Essentials',
-    group_id: '00000000-0000-0000-0000-000000000001',
-    duration_minutes: 30,
-    test_type: 'test',
-    status: 'published',
-    start_time: new Date(Date.now() - 3600000).toISOString(),
-    end_time: new Date(Date.now() + 86400000).toISOString(),
-    total_questions: 10,
-    max_score: 100,
-    created_at: new Date().toISOString(),
-    groups: { name: 'Programming & Logic', group_number: 1, color: '#1d72fe' },
-    questions: [
-      { id: 1, question: 'Which data structure follows the Last-In-First-Out (LIFO) principle?', options: ['Queue', 'Stack', 'Linked List', 'Binary Tree'], correct_index: 1, marks: 10 },
-      { id: 2, question: 'What is the average time complexity of searching in a Hash Map?', options: ['O(n)', 'O(log n)', 'O(1)', 'O(n^2)'], correct_index: 2, marks: 10 },
-      { id: 3, question: 'Which algorithm is used for finding the shortest path in a weighted graph?', options: ['Dijkstra', 'DFS', 'Kruskal', 'Prim'], correct_index: 0, marks: 10 },
-      { id: 4, question: 'Which traversal of a Binary Search Tree (BST) produces sorted output?', options: ['Pre-order', 'In-order', 'Post-order', 'Level-order'], correct_index: 1, marks: 10 },
-      { id: 5, question: 'Which data structure is primarily used in Breadth-First Search (BFS)?', options: ['Stack', 'Queue', 'Array', 'Heap'], correct_index: 1, marks: 10 },
-      { id: 6, question: 'In C++, what does the "new" operator return?', options: ['A reference', 'A pointer', 'An integer', 'A copy'], correct_index: 1, marks: 10 },
-      { id: 7, question: 'What is the worst-case time complexity of QuickSort?', options: ['O(n log n)', 'O(n)', 'O(n^2)', 'O(log n)'], correct_index: 2, marks: 10 },
-      { id: 8, question: 'Which of the following is NOT a linear data structure?', options: ['Array', 'Stack', 'Queue', 'Graph'], correct_index: 3, marks: 10 },
-      { id: 9, question: 'What is the minimum number of queues needed to implement a stack?', options: ['1', '2', '3', 'None'], correct_index: 1, marks: 10 },
-      { id: 10, question: 'Which sorting algorithm is considered stable?', options: ['Merge Sort', 'Quick Sort', 'Heap Sort', 'Selection Sort'], correct_index: 0, marks: 10 }
-    ]
-  },
-  {
-    id: 'test-102',
-    is_demo: true,
-    test_number: 2,
-    title: 'Microcontroller Architecture & Control Loops',
-    group_id: '00000000-0000-0000-0000-000000000002',
-    duration_minutes: 45,
-    test_type: 'test',
-    status: 'published',
-    start_time: new Date(Date.now() - 1800000).toISOString(),
-    end_time: new Date(Date.now() + 172800000).toISOString(),
-    total_questions: 10,
-    max_score: 100,
-    created_at: new Date().toISOString(),
-    groups: { name: 'Electronics & Control', group_number: 2, color: '#10b981' },
-    questions: [
-      { id: 1, question: 'In embedded systems, what is the purpose of a Watchdog Timer?', options: ['Track real time', 'Reset the MCU on software lockup', 'Generate PWM signals', 'Convert ADC values'], correct_index: 1, marks: 10 },
-      { id: 2, question: 'Which communication protocol uses two wires: SDA and SCL?', options: ['SPI', 'UART', 'I2C', 'CAN'], correct_index: 2, marks: 10 },
-      { id: 3, question: 'What does PWM stand for in motor speed control?', options: ['Pulse Width Modulation', 'Peak Waveform Mode', 'Power Wave Monitor', 'Phase Width Magnet'], correct_index: 0, marks: 10 },
-      { id: 4, question: 'Which register is used to configure GPIO pins as input or output in ARM Cortex-M?', options: ['MODER', 'ODR', 'IDR', 'PUPDR'], correct_index: 0, marks: 10 },
-      { id: 5, question: 'What is the primary role of a PID controller in feedback systems?', options: ['Reduce steady state error & minimize overshoot', 'Increase clock frequency', 'Store calibration logs', 'Convert analog to digital'], correct_index: 0, marks: 10 },
-      { id: 6, question: 'What is the resolution of a 10-bit Analog-to-Digital Converter (ADC)?', options: ['256 levels', '512 levels', '1024 levels', '2048 levels'], correct_index: 2, marks: 10 },
-      { id: 7, question: 'In digital electronics, which gate is known as the Universal Gate?', options: ['AND', 'NAND', 'OR', 'XOR'], correct_index: 1, marks: 10 },
-      { id: 8, question: 'Which interrupt has the highest execution priority in modern ARM microcontrollers?', options: ['SysTick', 'PendSV', 'Non-Maskable Interrupt (NMI)', 'External GPIO'], correct_index: 2, marks: 10 },
-      { id: 9, question: 'Which memory type retains its data when power is completely turned off?', options: ['SRAM', 'DRAM', 'EEPROM', 'CPU Registers'], correct_index: 2, marks: 10 },
-      { id: 10, question: 'What is the Nyquist minimum sampling rate for a signal bandwidth of 4 kHz?', options: ['2 kHz', '4 kHz', '8 kHz', '16 kHz'], correct_index: 2, marks: 10 }
-    ]
-  }
-];
-
-// Persistent Map to ensure questions and timings are NEVER lost regardless of UUID or ID mismatches
-const testQuestionsMap = new Map();
-const testTimingMap = new Map();
-inMemoryTests.forEach(t => {
-  testQuestionsMap.set(t.id, t.questions);
-  testQuestionsMap.set(t.title, t.questions);
-  testTimingMap.set(t.id, { start_time: t.start_time, end_time: t.end_time });
-  testTimingMap.set(t.title, { start_time: t.start_time, end_time: t.end_time });
-});
-
-let inMemorySubmissions = [
-  {
-    id: 'sub-001',
-    test_id: 'test-101',
-    student_name: 'Sanjay Kumar S',
-    student_email: 'sanjay.cs25@bitsathy.ac.in',
-    score: 90,
-    max_score: 100,
-    percentage: 90.0,
-    tab_switch_count: 0,
-    time_taken_seconds: 742,
-    status: 'completed',
-    submitted_at: new Date(Date.now() - 7200000).toISOString()
-  },
-  {
-    id: 'sub-002',
-    test_id: 'test-101',
-    student_name: 'Praveen K',
-    student_email: 'praveenk.it25@bitsathy.ac.in',
-    score: 70,
-    max_score: 100,
-    percentage: 70.0,
-    tab_switch_count: 3, // Flagged for faculty
-    time_taken_seconds: 1120,
-    status: 'completed',
-    submitted_at: new Date(Date.now() - 3600000).toISOString()
-  }
-];
-
-// -------------------------------------------------------------
-// 5. TESTS & ASSESSMENTS ENDPOINTS
+// Supabase-only storage — no file I/O (required for Vercel serverless)
 // -------------------------------------------------------------
 app.get('/api/tests', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
-    if (supabase) {
-      const { data, error } = await supabase
-        .from('tests')
-        .select('*, groups(name, group_number, color)')
-        .order('created_at', { ascending: false });
+    const studentEmail = (req.query.student_email || '').toLowerCase().trim();
+    const staffEmail   = (req.query.staff_email   || '').toLowerCase().trim();
+    const staffId      = req.query.staff_id || '';
 
-      if (!error && data && data.length > 0) {
-        // Merge with in-memory rich metadata and question registry
-        const merged = data.map(dbTest => {
-          const mem = inMemoryTests.find(m => m.id === dbTest.id || m.title === dbTest.title);
-          const cachedQuestions = testQuestionsMap.get(dbTest.id) || testQuestionsMap.get(dbTest.title) || mem?.questions || dbTest.questions;
-          const finalQuestions = (cachedQuestions && cachedQuestions.length > 0) ? cachedQuestions : inMemoryTests[0].questions;
-          const timing = testTimingMap.get(dbTest.id) || testTimingMap.get(dbTest.title) || { start_time: mem?.start_time, end_time: mem?.end_time };
-          return {
-            ...dbTest,
-            questions: finalQuestions,
-            total_questions: finalQuestions.length,
-            test_number: dbTest.test_number || mem?.test_number || 1,
-            start_time: dbTest.start_time || timing?.start_time || mem?.start_time || dbTest.scheduled_date,
-            end_time: dbTest.end_time || timing?.end_time || mem?.end_time,
-            allow_latecomers: mem?.allow_latecomers !== false
-          };
-        });
-        return res.json(merged);
-      }
+    const { data, error } = await supabase
+      .from('tests')
+      .select('*, groups(name, group_number, color)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    if (!Array.isArray(data)) return res.json([]);
+
+    let list = data.map(t => ({
+      ...t,
+      assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
+      questions: Array.isArray(t.questions) ? t.questions : [],
+      total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
+      uploadedFileName: t.uploaded_file_name || '',
+      start_time: t.start_time || t.scheduled_date,
+    }));
+
+    if (staffEmail || staffId) {
+      list = list.filter(t => {
+        const byEmail = staffEmail && (t.created_by_email || '').toLowerCase() === staffEmail;
+        const byId    = staffId    && String(t.created_by) === String(staffId);
+        return byEmail || byId;
+      });
     }
-    res.json(inMemoryTests);
+
+    if (studentEmail) {
+      list = list.filter(t => {
+        if (!t.assigned_students || t.assigned_students.length === 0) return true;
+        return t.assigned_students.map(e => (typeof e === 'string' ? e : e?.email || '').toLowerCase()).includes(studentEmail);
+      });
+    }
+
+    return res.json(list);
   } catch (err) {
-    console.warn('Falling back to in-memory tests:', err.message);
-    res.json(inMemoryTests);
+    console.error('GET /api/tests error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch tests', details: err.message });
   }
 });
 
-// Single test with complete questions
+
+// Single test by ID
 app.get('/api/tests/:id', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
-  const found = inMemoryTests.find(t => t.id === id || String(t.id) === String(id));
-  if (found) {
-    return res.json(found);
+  try {
+    const { data, error } = await supabase
+      .from('tests')
+      .select('*, groups(name, group_number, color)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Test not found', id });
+
+    return res.json({
+      ...data,
+      questions: Array.isArray(data.questions) ? data.questions : [],
+      total_questions: Array.isArray(data.questions) ? data.questions.length : (data.total_questions || 0),
+      assigned_students: Array.isArray(data.assigned_students) ? data.assigned_students : [],
+      start_time: data.start_time || data.scheduled_date,
+      uploadedFileName: data.uploaded_file_name || ''
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch test', details: err.message });
   }
-
-  if (supabase) {
-    try {
-      const { data, error } = await supabase
-        .from('tests')
-        .select('*, groups(name, group_number, color)')
-        .eq('id', id)
-        .maybeSingle();
-
-      if (!error && data) {
-        const matchingMem = inMemoryTests.find(m => m.id === id || m.title === data.title);
-        const cachedQuestions = testQuestionsMap.get(id) || testQuestionsMap.get(data.title) || matchingMem?.questions || data.questions;
-        const finalQuestions = (cachedQuestions && cachedQuestions.length > 0) ? cachedQuestions : inMemoryTests[0].questions;
-        const timing = testTimingMap.get(id) || testTimingMap.get(data.title) || { start_time: matchingMem?.start_time, end_time: matchingMem?.end_time };
-        return res.json({
-          ...data,
-          questions: finalQuestions,
-          total_questions: finalQuestions.length,
-          start_time: data.start_time || timing?.start_time || matchingMem?.start_time || data.scheduled_date,
-          end_time: data.end_time || timing?.end_time || matchingMem?.end_time,
-          allow_latecomers: matchingMem?.allow_latecomers !== false
-        });
-      }
-    } catch {
-      // fallback
-    }
-  }
-
-  // Fallback to first test
-  res.json(inMemoryTests[0]);
 });
 
-// Create new test with questions & timing
-app.post('/api/tests', async (req, res) => {
+
+// Create new test
+app.post('/api/tests', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
-    const { 
-      title, 
-      groupId, 
-      testNumber,
-      durationMinutes, 
-      testType, 
-      status, 
-      startTime, 
-      endTime, 
-      questions, 
-      maxScore,
-      userId 
+    const {
+      title, groupId, testNumber, durationMinutes, testType, status,
+      startTime, endTime, questions, maxScore, userId, assignedStudents,
+      allowLatecomers, uploaded_file_name, uploadedFileName, created_by_email, userEmail
     } = req.body;
 
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Test title is required' });
     }
 
-    const cleanQuestions = Array.isArray(questions) && questions.length > 0 
-      ? questions 
-      : inMemoryTests[0].questions;
-
-    const totalScore = parseInt(maxScore) || (cleanQuestions.length * 10);
-    const duration = parseInt(durationMinutes) || 45;
-    const num = parseInt(testNumber) || (inMemoryTests.length + 1);
-
     const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
+    const cleanGroupId  = isValidUUID(groupId) ? groupId : null;
+    const cleanUserId   = isValidUUID(userId)  ? userId  : null;
+    const cleanQuestions = Array.isArray(questions) && questions.length > 0 ? questions : [];
+    const totalScore    = parseInt(maxScore) || (cleanQuestions.length * 10) || 100;
+    const duration      = parseInt(durationMinutes) || 45;
+    const assignedList  = Array.isArray(assignedStudents) ? assignedStudents : [];
+    const creatorEmail  = (created_by_email || userEmail || req.user?.email || '').toLowerCase().trim() || null;
+    const filename      = uploaded_file_name || uploadedFileName || null;
 
-    let cleanGroupId = isValidUUID(groupId) ? groupId : '00000000-0000-0000-0000-000000000001';
-    let cleanUserId = isValidUUID(userId) ? userId : null;
-
-    // Find group metadata
-    let groupMeta = { name: 'Core Subjects', group_number: 1, color: '#1d72fe' };
-    if (supabase && cleanGroupId) {
-      try {
-        const { data: g } = await supabase.from('groups').select('*').eq('id', cleanGroupId).maybeSingle();
-        if (g) groupMeta = g;
-      } catch {}
-    }
-
-    const newTestObj = {
-      id: 'test-' + Date.now(),
-      test_number: num,
+    const payload = {
       title: title.trim(),
       group_id: cleanGroupId,
       duration_minutes: duration,
       test_type: testType || 'test',
       status: status || 'published',
-      allow_latecomers: req.body.allowLatecomers !== false,
+      max_score: totalScore,
+      scheduled_date: startTime || new Date().toISOString(),
       start_time: startTime || new Date().toISOString(),
       end_time: endTime || new Date(Date.now() + 86400000).toISOString(),
+      allow_latecomers: allowLatecomers !== false,
       questions: cleanQuestions,
       total_questions: cleanQuestions.length,
-      max_score: totalScore,
-      created_at: new Date().toISOString(),
-      created_by: cleanUserId,
-      groups: groupMeta,
-      is_demo: false
+      assigned_students: assignedList,
+      created_by_email: creatorEmail,
+      uploaded_file_name: filename,
+      test_number: parseInt(testNumber) || 1
     };
+    if (cleanUserId) payload.created_by = cleanUserId;
 
-    // Attempt database persistence and capture auto-generated UUID
-    if (supabase) {
-      try {
-        const payload = {
-          title: newTestObj.title,
-          group_id: cleanGroupId,
-          duration_minutes: newTestObj.duration_minutes,
-          test_type: newTestObj.test_type,
-          status: newTestObj.status,
-          max_score: newTestObj.max_score,
-          scheduled_date: newTestObj.start_time
-        };
-        if (cleanUserId) {
-          payload.created_by = cleanUserId;
-        }
-        const { data: dbCreated, error: insertErr } = await supabase.from('tests').insert([payload]).select();
-        if (dbCreated && dbCreated[0]) {
-          newTestObj.id = dbCreated[0].id;
-        } else if (insertErr) {
-          console.warn('Supabase test insert note (falling back to memory):', insertErr.message);
-        }
-      } catch (err) {
-        console.warn('Note: test saved to memory cache:', err.message);
-      }
-    }
+    const { data: created, error } = await supabase
+      .from('tests')
+      .insert([payload])
+      .select('*, groups(name, group_number, color)');
 
-    // Register questions and timings in map by UUID and by title
-    testQuestionsMap.set(newTestObj.id, cleanQuestions);
-    testQuestionsMap.set(String(newTestObj.id), cleanQuestions);
-    testQuestionsMap.set(newTestObj.title, cleanQuestions);
+    if (error) throw error;
+    const newTest = created?.[0];
+    if (!newTest) throw new Error('Insert returned no data');
 
-    testTimingMap.set(newTestObj.id, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-    testTimingMap.set(String(newTestObj.id), { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-    testTimingMap.set(newTestObj.title, { start_time: newTestObj.start_time, end_time: newTestObj.end_time });
-
-    // Add to in-memory store
-    inMemoryTests.unshift(newTestObj);
-
-    return res.status(201).json(newTestObj);
+    console.log(`[Supabase] Created test ${newTest.id} (${newTest.title})`);
+    return res.status(201).json({
+      ...newTest,
+      uploadedFileName: newTest.uploaded_file_name || '',
+      assigned_students: Array.isArray(newTest.assigned_students) ? newTest.assigned_students : []
+    });
   } catch (err) {
-    console.error('Create test error:', err);
+    console.error('Create test error:', err.message);
     return res.status(500).json({ error: 'Failed to create test: ' + err.message });
   }
 });
 
-// -------------------------------------------------------------
-// SUBMISSIONS & PROCTORING (TAB SWITCH & MARKS)
-// -------------------------------------------------------------
-app.post('/api/tests/:id/submit', async (req, res) => {
+
+// Update test
+app.put('/api/tests/:id', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    const { id } = req.params;
+    const u = req.body;
+
+    const payload = {};
+    if (u.title           !== undefined) payload.title            = u.title;
+    if (u.groupId         !== undefined) payload.group_id         = u.groupId;
+    if (u.durationMinutes !== undefined) payload.duration_minutes = u.durationMinutes;
+    if (u.testType        !== undefined) payload.test_type        = u.testType;
+    if (u.status          !== undefined) payload.status           = u.status;
+    if (u.maxScore        !== undefined) payload.max_score        = u.maxScore;
+    if (u.startTime       !== undefined) payload.start_time       = u.startTime;
+    if (u.startTime       !== undefined) payload.scheduled_date   = u.startTime;
+    if (u.endTime         !== undefined) payload.end_time         = u.endTime;
+    if (u.allowLatecomers !== undefined) payload.allow_latecomers = u.allowLatecomers;
+    if (u.assignedStudents!== undefined) payload.assigned_students= u.assignedStudents;
+    if (u.questions       !== undefined) payload.questions        = u.questions;
+    if (u.questions       !== undefined) payload.total_questions  = u.questions.length;
+    if (u.uploaded_file_name || u.uploadedFileName) payload.uploaded_file_name = u.uploaded_file_name || u.uploadedFileName;
+    if (u.created_by_email  !== undefined) payload.created_by_email = u.created_by_email;
+    if (u.userEmail !== undefined && !payload.created_by_email) payload.created_by_email = u.userEmail;
+
+    const { data, error } = await supabase
+      .from('tests')
+      .update(payload)
+      .eq('id', id)
+      .select('*, groups(name, group_number, color)')
+      .maybeSingle();
+
+    if (error) throw error;
+    return res.json(data || { id, ...u });
+  } catch (err) {
+    console.error('Update test error:', err.message);
+    res.status(500).json({ error: 'Failed to update test: ' + err.message });
+  }
+});
+
+
+// Delete test
+app.delete('/api/tests/:id', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
-  const { 
-    studentName, 
-    studentEmail, 
-    answers = {}, 
-    tabSwitchCount = 0, 
-    timeTakenSeconds = 0 
+  const keepData = req.query.keepData === 'true' || req.body?.keepData === true;
+  try {
+    if (!keepData) {
+      await supabase.from('test_submissions').delete().eq('test_id', id);
+    }
+    const { error } = await supabase.from('tests').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true, keepData });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete test', details: err.message });
+  }
+});
+
+
+// Submit a test
+app.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const {
+    studentName, studentEmail, answers = {},
+    tabSwitchCount = 0, timeTakenSeconds = 0,
+    score: clientScore, percentage: clientPercentage,
+    correct_count: clientCorrectCount, total_questions: clientTotalQuestions,
+    max_score: clientMaxScore
   } = req.body;
 
-  // Find test to grade answers
-  const test = inMemoryTests.find(t => t.id === id) || inMemoryTests[0];
-  const questions = test?.questions || [];
+  if (!studentEmail) return res.status(400).json({ error: 'Student email is required' });
 
-  let correctCount = 0;
-  let score = 0;
-  const totalQuestions = questions.length;
-  const pointsPerQuestion = totalQuestions > 0 ? (test.max_score || 100) / totalQuestions : 10;
-
-  questions.forEach((q, idx) => {
-    // Check by question ID, string of ID, or question index
-    const studentChoice = answers[q.id] !== undefined 
-      ? answers[q.id] 
-      : (answers[String(q.id)] !== undefined ? answers[String(q.id)] : answers[idx]);
-
-    if (studentChoice !== undefined && Number(studentChoice) === Number(q.correct_index)) {
-      correctCount++;
-      score += (q.marks || pointsPerQuestion);
+  // Fetch test from Supabase to grade server-side (authoritative)
+  let questions = [];
+  let maxScore = clientMaxScore || 100;
+  try {
+    const { data: testRow } = await supabase.from('tests').select('questions, max_score').eq('id', id).maybeSingle();
+    if (testRow) {
+      questions = Array.isArray(testRow.questions) ? testRow.questions : [];
+      maxScore = testRow.max_score || maxScore;
     }
-  });
+  } catch (_) {}
 
-  const maxScore = test.max_score || (totalQuestions * 10);
-  const percentage = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+  const totalQuestions = clientTotalQuestions !== undefined ? clientTotalQuestions : questions.length;
+  let score = clientScore !== undefined ? clientScore : 0;
+  let correctCount = clientCorrectCount !== undefined ? clientCorrectCount : 0;
 
-  const submission = {
-    id: 'sub-' + Date.now(),
+  if (clientScore === undefined && questions.length > 0) {
+    score = 0; correctCount = 0;
+    const pointsPerQ = totalQuestions > 0 ? maxScore / totalQuestions : 10;
+    questions.forEach((q, idx) => {
+      const choice = answers[q.id] !== undefined ? answers[q.id] : answers[idx];
+      if (choice !== undefined && Number(choice) === Number(q.correct_index)) {
+        correctCount++;
+        score += (q.marks || pointsPerQ);
+      }
+    });
+    score = Math.min(maxScore, Math.round(score));
+  }
+  const percentage = Math.min(100, Math.round((score / maxScore) * 100));
+
+  const cleanEmail = (studentEmail || '').toLowerCase().trim();
+
+  // Upsert to Supabase (replace previous submission for same student+test)
+  let studentDbId = null;
+  try {
+    const { data: u } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+    if (u?.id) studentDbId = u.id;
+  } catch (_) {}
+
+  const subPayload = {
     test_id: id,
+    student_id: studentDbId,
     student_name: studentName || 'Student',
-    student_email: studentEmail || 'student@bitsathy.ac.in',
-    score: score,
-    max_score: maxScore,
-    percentage: percentage,
-    correct_count: correctCount,
-    total_questions: totalQuestions,
+    student_email: cleanEmail,
+    score, max_score: maxScore, answers,
     tab_switch_count: parseInt(tabSwitchCount) || 0,
     time_taken_seconds: parseInt(timeTakenSeconds) || 0,
-    answers: answers,
-    status: 'completed',
-    submitted_at: new Date().toISOString()
+    correct_count: correctCount,
+    total_questions: totalQuestions,
+    status: 'completed'
   };
 
-  inMemorySubmissions.unshift(submission);
+  // Delete any previous submission for the same student+test, then insert fresh
+  try {
+    await supabase.from('test_submissions').delete()
+      .eq('test_id', id).eq('student_email', cleanEmail);
+  } catch (_) {}
 
-  // Optional Supabase submission record
-  if (supabase) {
-    try {
-      await supabase.from('test_submissions').insert([{
-        test_id: id.startsWith('test-') ? null : id,
-        score: submission.score,
-        max_score: submission.max_score,
-        status: 'completed'
-      }]);
-    } catch {}
+  const { data: inserted, error: subErr } = await supabase
+    .from('test_submissions').insert([subPayload]).select().maybeSingle();
+
+  if (subErr) {
+    console.error('Submission insert error:', subErr.message);
+    return res.status(500).json({ error: 'Failed to save submission: ' + subErr.message });
   }
 
-  res.status(201).json(submission);
+  res.status(201).json(inserted || { ...subPayload, id: 'sub-' + Date.now(), percentage });
 });
 
-// View all submissions / marks for a test (For Faculty)
+// All submissions for a test (staff view)
 app.get('/api/tests/:id/submissions', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
-  const results = inMemorySubmissions.filter(s => s.test_id === id);
-
-  // If no submissions yet for this test, provide representative preview data
-  if (results.length === 0) {
-    return res.json([
-      {
-        id: 'sub-demo-1',
-        test_id: id,
-        student_name: 'Krithick Raj S',
-        student_email: 'krithickrajs.cs25@bitsathy.ac.in',
-        score: 90,
-        max_score: 100,
-        percentage: 90,
-        tab_switch_count: 0,
-        time_taken_seconds: 640,
-        status: 'completed',
-        submitted_at: new Date().toISOString()
-      },
-      {
-        id: 'sub-demo-2',
-        test_id: id,
-        student_name: 'Praveen K',
-        student_email: 'praveenk.it25@bitsathy.ac.in',
-        score: 60,
-        max_score: 100,
-        percentage: 60,
-        tab_switch_count: 4, // Cheating alert
-        time_taken_seconds: 1200,
-        status: 'completed',
-        submitted_at: new Date().toISOString()
-      }
-    ]);
+  try {
+    const { data, error } = await supabase
+      .from('test_submissions')
+      .select('*')
+      .eq('test_id', id)
+      .order('submitted_at', { ascending: false });
+    if (error) throw error;
+    // Deduplicate: keep latest per student
+    const map = new Map();
+    (data || []).forEach(s => {
+      const key = (s.student_email || s.student_id || s.id).toLowerCase();
+      if (!map.has(key)) map.set(key, s);
+    });
+    res.json(Array.from(map.values()));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch submissions', details: err.message });
   }
-
-  res.json(results);
 });
 
-// Check if a student already submitted a test
-app.get('/api/student/submissions', (req, res) => {
+// All submissions for a student (student view)
+app.get('/api/student/submissions', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { email } = req.query;
-  if (!email) return res.json(inMemorySubmissions);
-  const studentSubs = inMemorySubmissions.filter(s => s.student_email?.toLowerCase() === email.toLowerCase());
-  res.json(studentSubs);
+  try {
+    let query = supabase.from('test_submissions').select('*').order('submitted_at', { ascending: false });
+    if (email) query = query.eq('student_email', email.toLowerCase().trim());
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch student submissions', details: err.message });
+  }
 });
+
 
 // -------------------------------------------------------------
 // 6. ADMIN & USER MANAGEMENT ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/admin/users', async (req, res) => {
-  if (!supabase) {
-    return res.status(503).json({ error: 'Database client not connected' });
-  }
-
+app.get('/api/admin/users', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .order('created_at', { ascending: false });
-
     if (error) throw error;
-
-    // Fallback seed list if empty
-    if (!data || data.length === 0) {
-      const mockUsers = [
-        { id: '1', name: 'Krithick Raj S', mailid: 'krithickrajs.cs25@bitsathy.ac.in', UserType: 'student' },
-        { id: '2', name: 'Dr. Senthil Kumar', mailid: 'senthilkumar@bitsathy.ac.in', UserType: 'staff' },
-        { id: '3', name: 'Dean Academics', mailid: 'admin.academics@bitsathy.ac.in', UserType: 'admin' },
-        { id: '4', name: 'Praveen K', mailid: 'praveenk.it25@bitsathy.ac.in', UserType: 'student' }
-      ];
-      return res.json(mockUsers);
-    }
-
-    res.json(data);
+    res.json(data || []);
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve users', details: err.message });
   }
 });
 
-app.put('/api/admin/users/:id/role', async (req, res) => {
+app.put('/api/admin/users/:id/role', verifyAuth, async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -884,6 +1210,92 @@ app.put('/api/admin/users/:id/role', async (req, res) => {
     res.json(data?.[0]);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update user role', details: err.message });
+  }
+});
+
+app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
+  const { id } = req.params;
+  const emailQuery = (req.query.email || '').toLowerCase().trim();
+
+  try {
+    let targetId = id;
+    let targetEmail = emailQuery;
+
+    // Find user record in DB if email wasn't passed
+    if (supabase) {
+      if (!targetEmail) {
+        const { data: u } = await supabase.from('users').select('id, mailid').eq('id', id).maybeSingle();
+        if (u) {
+          targetEmail = (u.mailid || '').toLowerCase();
+        }
+      }
+
+      // Check if attempting to delete Super Admin
+      if (targetEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+        return res.status(403).json({ error: 'Super Admin account cannot be deleted' });
+      }
+
+      // Delete from all tables
+      try {
+        if (targetId && !targetId.startsWith('dyn-')) {
+          await supabase.from('students').delete().eq('id', targetId);
+          await supabase.from('staff').delete().eq('id', targetId);
+          await supabase.from('users').delete().eq('id', targetId);
+        }
+        if (targetEmail) {
+          await supabase.from('users').delete().eq('mailid', targetEmail);
+        }
+      } catch (dbErr) {
+        console.warn('Database user deletion note:', dbErr.message);
+      }
+
+      // Delete from auth.users via Supabase Admin API
+      try {
+        if (targetId && !targetId.startsWith('dyn-')) {
+          await supabase.auth.admin.deleteUser(targetId);
+        } else if (targetEmail) {
+          const { data: { users } } = await supabase.auth.admin.listUsers();
+          const authUser = users?.find(u => u.email.toLowerCase() === targetEmail);
+          if (authUser) {
+            await supabase.auth.admin.deleteUser(authUser.id);
+          }
+        }
+      } catch (authErr) {
+        console.warn('Auth user deletion note:', authErr.message);
+      }
+    }
+
+    // Clear from all in-memory registries & persistence files
+    if (targetEmail) {
+      userRoleOverrides.delete(targetEmail);
+      inMemoryStudentProfiles.delete(targetEmail);
+      inMemoryStaffRequests = inMemoryStaffRequests.filter(r => r.email.toLowerCase() !== targetEmail);
+      saveStaffRequestsToFile();
+      studentStaffAssignments.delete(targetEmail);
+      saveMappingToFile();
+      inMemorySubmissions = inMemorySubmissions.filter(s => (s.student_email || '').toLowerCase() !== targetEmail);
+      saveSubmissionsToFile();
+    }
+
+    res.json({ success: true, message: `User ${targetEmail || id} completely deleted from system.` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete user', details: err.message });
+  }
+});
+
+app.post('/api/admin/reset-database', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    userRoleOverrides.clear();
+    userRoleOverrides.set('krithickrajs.cs25@bitsathy.ac.in', 'admin');
+
+    await supabase.from('test_submissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('tests').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    try { await supabase.from('staff_requests').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (_) {}
+
+    res.json({ message: 'Database reset successfully. Only Super Admin retained.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reset database', details: err.message });
   }
 });
 

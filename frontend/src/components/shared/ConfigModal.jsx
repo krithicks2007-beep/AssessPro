@@ -4,6 +4,10 @@ import { KeyRound, X, ExternalLink, Info, Check } from 'lucide-react';
 
 export default function ConfigModal({ isOpen, onClose, onConfigSaved }) {
   if (!isOpen) return null;
+  return <ConfigModalInner isOpen={isOpen} onClose={onClose} onConfigSaved={onConfigSaved} />;
+}
+
+function ConfigModalInner({ isOpen, onClose, onConfigSaved }) {
 
   const currentConfig = getSupabaseConfig();
   const [url, setUrl] = useState(currentConfig.supabaseUrl || '');

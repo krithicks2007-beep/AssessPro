@@ -8,20 +8,20 @@ import {
   ChevronLeft, 
   ShieldAlert, 
   ShieldCheck, 
-  Flag, 
   Send,
   Award,
-  RefreshCw,
   EyeOff,
   Maximize2,
-  Minimize2,
   Lock
 } from 'lucide-react';
 import api from '../../api';
 
 export default function TestTakingModal({ isOpen, onClose, test, student, onTestCompleted }) {
   if (!isOpen || !test) return null;
+  return <TestTakingModalInner onClose={onClose} test={test} student={student} onTestCompleted={onTestCompleted} />;
+}
 
+function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
   // Stages: 'PROCTOR_AGREEMENT' | 'IN_EXAM' | 'COMPLETED'
   const [stage, setStage] = useState('PROCTOR_AGREEMENT');
   const [currentQIndex, setCurrentQIndex] = useState(0);
@@ -32,9 +32,13 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
   const [timeLeftSeconds, setTimeLeftSeconds] = useState((test.duration_minutes || 30) * 60);
   const [submissionResult, setSubmissionResult] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [sessionStartTime] = useState(() => Date.now());
 
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
+  const lastViolationTimeRef = useRef(0);
+  const autoSubmitRef = useRef(null);
 
   // Fullscreen Helper Functions
   const requestFullscreenMode = async () => {
@@ -88,102 +92,18 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
         { id: 10, question: 'What is the Nyquist minimum sampling rate for a signal bandwidth of 4 kHz?', options: ['2 kHz', '4 kHz', '8 kHz', '16 kHz'], correct_index: 2, marks: 10 }
       ];
 
-
-  // 1. Tab Switch, Blur & Fullscreen Event Listeners
-  useEffect(() => {
-    if (stage !== 'IN_EXAM') return;
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setTabSwitchCount(prev => prev + 1);
-        setTabSwitchWarning(true);
-      }
-    };
-
-    const handleWindowBlur = () => {
-      setTabSwitchCount(prev => prev + 1);
-      setTabSwitchWarning(true);
-    };
-
-    const handleFullscreenChange = () => {
-      const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
-      setIsFullscreen(isFs);
-      if (!isFs) {
-        // Exited fullscreen! Log proctoring violation
-        setTabSwitchCount(prev => prev + 1);
-        setTabSwitchWarning(true);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleWindowBlur);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleWindowBlur);
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-    };
-  }, [stage]);
-
-  // 2. Countdown Timer
-  useEffect(() => {
-    if (stage !== 'IN_EXAM') return;
-
-    startTimeRef.current = Date.now();
-    timerRef.current = setInterval(() => {
-      setTimeLeftSeconds(prev => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          handleAutoSubmit();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timerRef.current);
-  }, [stage]);
-
-  const handleStartExam = async () => {
-    await requestFullscreenMode();
-    setStage('IN_EXAM');
-    setTabSwitchCount(0);
-    setAnswers({});
-
-    // Calculate strict remaining time based on scheduled start time
-    const startMs = test.start_time ? new Date(test.start_time).getTime() : Date.now();
-    const endMs = startMs + (test.duration_minutes || 30) * 60 * 1000;
-    const nowMs = Date.now();
-    const remainingSeconds = Math.max(0, Math.floor((endMs - nowMs) / 1000));
-    
-    setTimeLeftSeconds(remainingSeconds);
-  };
-
-  const handleOptionSelect = (qId, optionIdx) => {
-    setAnswers(prev => ({
-      ...prev,
-      [qId]: optionIdx
-    }));
-  };
-
-  const handleAutoSubmit = () => {
-    handleSubmitExam();
-  };
-
   const handleSubmitExam = async () => {
     if (submitting) return;
     setSubmitting(true);
+    setSubmitError('');
     clearInterval(timerRef.current);
     try {
-      exitFullscreenMode();
-    } catch (e) {}
+      await exitFullscreenMode();
+    } catch {}
 
     const timeSpent = Math.max(1, Math.round(((test.duration_minutes || 30) * 60) - timeLeftSeconds));
 
-    // 1. Instant accurate client-side score computation
+    // 1. Accurate client-side score computation
     let correct = 0;
     const totalQ = questions.length || 1;
     const maxScore = test.max_score || (totalQ * 10);
@@ -198,8 +118,8 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
       }
     });
 
-    const finalScore = Math.round(earnedScore);
-    const finalPercentage = Math.round((finalScore / maxScore) * 100);
+    const finalScore = Math.min(maxScore, Math.round(earnedScore));
+    const finalPercentage = Math.min(100, Math.round((finalScore / maxScore) * 100));
 
     const submissionPayload = {
       id: 'sub-' + Date.now(),
@@ -219,7 +139,24 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
       submitted_at: new Date().toISOString()
     };
 
-    // 2. Transition immediately to COMPLETED stage with results (0ms delay)
+    // 2. Persist to backend FIRST — do not show success until confirmed
+    try {
+      await api.submitTest(test.id, {
+        ...submissionPayload,
+        studentName: submissionPayload.student_name,
+        studentEmail: submissionPayload.student_email,
+        tabSwitchCount: tabSwitchCount,
+        timeTakenSeconds: timeSpent
+      });
+    } catch (err) {
+      // Submission truly failed — show error, do NOT transition to COMPLETED
+      console.error('Submission failed:', err.message);
+      setSubmitError('Submission failed: ' + (err.message || 'Server error. Please try again or contact your teacher.'));
+      setSubmitting(false);
+      return;
+    }
+
+    // 3. Only after server confirms — transition to COMPLETED
     setSubmissionResult(submissionPayload);
     setStage('COMPLETED');
     setSubmitting(false);
@@ -227,17 +164,107 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
     if (onTestCompleted) {
       onTestCompleted(submissionPayload);
     }
+  };
 
-    // 3. Sync to Backend & Supabase asynchronously in background without blocking UI
-    api.submitTest(test.id, {
-      ...submissionPayload,
-      studentName: submissionPayload.student_name,
-      studentEmail: submissionPayload.student_email,
-      tabSwitchCount: tabSwitchCount,
-      timeTakenSeconds: timeSpent
-    }).catch(err => {
-      console.warn('Background submission sync note:', err.message);
-    });
+  const handleAutoSubmit = () => {
+    handleSubmitExam();
+  };
+
+  // 1. Tab Switch, Blur & Fullscreen Event Listeners with Debounce
+  useEffect(() => {
+    if (stage !== 'IN_EXAM') return;
+
+    const recordViolation = () => {
+      const now = Date.now();
+      if (now - lastViolationTimeRef.current < 1200) return;
+      lastViolationTimeRef.current = now;
+      setTabSwitchCount(prev => prev + 1);
+      setTabSwitchWarning(true);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        recordViolation();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      recordViolation();
+    };
+
+    const handleFullscreenChange = () => {
+      const isFs = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      setIsFullscreen(isFs);
+      if (!isFs) {
+        recordViolation();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, [stage]);
+
+  useEffect(() => {
+    autoSubmitRef.current = handleAutoSubmit;
+  });
+
+  // 2. Countdown Timer
+  useEffect(() => {
+    if (stage !== 'IN_EXAM') return;
+
+    startTimeRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setTimeLeftSeconds(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          if (autoSubmitRef.current) autoSubmitRef.current();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerRef.current);
+  }, [stage]);
+
+  const handleStartExam = async () => {
+    await requestFullscreenMode();
+    setStage('IN_EXAM');
+    setTabSwitchCount(0);
+    setAnswers({});
+    setSubmitError('');
+
+    // Bug #4 fix: compute remaining time respecting the test end_time deadline
+    const durationSecs = (test.duration_minutes || 30) * 60;
+    let remainingSeconds = durationSecs;
+    if (test.end_time) {
+      const secondsToDeadline = Math.floor((new Date(test.end_time).getTime() - Date.now()) / 1000);
+      if (secondsToDeadline > 0 && secondsToDeadline < durationSecs) {
+        remainingSeconds = secondsToDeadline;
+      } else if (secondsToDeadline <= 0) {
+        // Deadline already passed — do not start
+        alert('This assessment has already closed. Please contact your teacher.');
+        onClose();
+        return;
+      }
+    }
+    setTimeLeftSeconds(remainingSeconds);
+  };
+
+  const handleOptionSelect = (qId, optionIdx) => {
+    setAnswers(prev => ({
+      ...prev,
+      [qId]: optionIdx
+    }));
   };
 
   // Format MM:SS
@@ -249,6 +276,7 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
 
   const currentQ = questions[currentQIndex] || questions[0];
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
+  const isLocked = Boolean(test.start_time && new Date(test.start_time).getTime() > sessionStartTime);
 
   return (
     <div 
@@ -344,7 +372,7 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
               </div>
 
               {/* Check if test is upcoming / scheduled in future */}
-              {test.start_time && new Date(test.start_time).getTime() > Date.now() ? (
+              {isLocked ? (
                 <div style={{
                   background: '#eff6ff',
                   border: '1.5px solid #bfdbfe',
@@ -427,7 +455,7 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
                 >
                   Close
                 </button>
-                {test.start_time && new Date(test.start_time).getTime() > Date.now() ? (
+                {isLocked ? (
                   <button
                     disabled
                     style={{
@@ -558,6 +586,28 @@ export default function TestTakingModal({ isOpen, onClose, test, student, onTest
                 </button>
               </div>
             </div>
+
+            {/* Submission error banner */}
+            {submitError && (
+              <div style={{
+                background: '#7f1d1d',
+                color: '#ffffff',
+                padding: '0.75rem 1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                borderBottom: '1px solid #991b1b'
+              }}>
+                <AlertTriangle size={16} />
+                <span>{submitError}</span>
+                <button
+                  onClick={() => setSubmitError('')}
+                  style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1rem' }}
+                >✕</button>
+              </div>
+            )}
 
             {/* Fullscreen exited alert banner */}
             {!isFullscreen && (

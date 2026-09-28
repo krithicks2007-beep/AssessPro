@@ -163,8 +163,8 @@ body {
 /* Sidebar */
 .sidebar {
   width: 230px;
-  background: #ffffff;
-  border-right: 1px solid var(--border-light);
+  background: #0f172a;
+  border-right: none;
   display: flex;
   flex-direction: column;
   padding: 1.25rem 1rem;
@@ -202,13 +202,13 @@ body {
 .sidebar-logo-title {
   font-weight: 800;
   font-size: 1.15rem;
-  color: #1e3a8a;
+  color: #ffffff;
   line-height: 1.1;
 }
 
 .sidebar-logo-sub {
   font-size: 0.64rem;
-  color: #64748b;
+  color: #94a3b8;
   font-weight: 600;
 }
 
@@ -217,7 +217,7 @@ body {
   text-align: center;
   padding: 1.25rem 0.5rem;
   margin-bottom: 0.75rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid #1e293b;
 }
 
 .sidebar-avatar {
@@ -238,7 +238,7 @@ body {
 .sidebar-profile-name {
   font-size: 0.88rem;
   font-weight: 700;
-  color: #111827;
+  color: #ffffff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -246,13 +246,13 @@ body {
 
 .sidebar-profile-role {
   font-size: 0.72rem;
-  color: #6b7280;
+  color: #94a3b8;
   margin-top: 0.15rem;
 }
 
 .sidebar-profile-dept {
   font-size: 0.68rem;
-  color: #9ca3af;
+  color: #64748b;
   margin-top: 0.1rem;
 }
 
@@ -270,7 +270,7 @@ body {
   gap: 0.75rem;
   padding: 0.62rem 0.85rem;
   border-radius: var(--radius-sm);
-  color: #4b5563;
+  color: #cbd5e1;
   font-size: 0.84rem;
   font-weight: 600;
   text-decoration: none;
@@ -283,8 +283,8 @@ body {
 }
 
 .nav-link:hover {
-  background: #f3f4f6;
-  color: #111827;
+  background: #1e293b;
+  color: #ffffff;
 }
 
 .nav-link.active {
@@ -300,7 +300,7 @@ body {
 .sidebar-logout {
   margin-top: auto;
   padding-top: 1rem;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid #1e293b;
 }
 
 /* Main Content Area */

@@ -17,67 +17,7 @@ export default function Results({
   isDemoMaster = false,
   onNavigateToTests
 }) {
-  const demoSubmissions = [
-    {
-      id: 'demo-sub-1',
-      test_id: 'test-101',
-      test_title: 'Data Structures & Logic Essentials',
-      score: 90,
-      max_score: 100,
-      percentage: 90,
-      tab_switch_count: 0,
-      submitted_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-      status: 'completed'
-    },
-    {
-      id: 'demo-sub-2',
-      test_id: 'test-102',
-      test_title: 'Microcontroller Architecture & Control Loops',
-      score: 70,
-      max_score: 100,
-      percentage: 70,
-      tab_switch_count: 0,
-      submitted_at: new Date(Date.now() - 86400000 * 5).toISOString(),
-      status: 'completed'
-    },
-    {
-      id: 'demo-sub-3',
-      test_id: 'test-103',
-      test_title: 'Control Systems & Transfer Functions',
-      score: 80,
-      max_score: 100,
-      percentage: 80,
-      tab_switch_count: 1,
-      submitted_at: new Date(Date.now() - 86400000 * 9).toISOString(),
-      status: 'completed'
-    },
-    {
-      id: 'demo-sub-4',
-      test_id: 'test-104',
-      test_title: 'Digital Electronics & Logic Gates',
-      score: 72,
-      max_score: 100,
-      percentage: 72,
-      tab_switch_count: 0,
-      submitted_at: new Date(Date.now() - 86400000 * 14).toISOString(),
-      status: 'completed'
-    }
-  ];
-
-  // Merge server submissions and local client storage submissions
-  const cleanEmail = (email || '').toLowerCase().trim();
-  const localSubs = cleanEmail ? JSON.parse(localStorage.getItem('assesspro_subs_' + cleanEmail) || '[]') : [];
-  const allLocalSubs = JSON.parse(localStorage.getItem('assesspro_all_submissions') || '[]');
-
-  const subMap = new Map();
-  (studentSubmissions || []).forEach(s => subMap.set(String(s.test_id), s));
-  allLocalSubs.filter(s => s.student_email?.toLowerCase() === cleanEmail).forEach(s => subMap.set(String(s.test_id), s));
-  localSubs.forEach(s => subMap.set(String(s.test_id), s));
-  const activeSubs = Array.from(subMap.values());
-
-  const effectiveSubmissions = (isDemoMaster && activeSubs.length === 0)
-    ? demoSubmissions
-    : activeSubs;
+  const effectiveSubmissions = Array.isArray(studentSubmissions) ? studentSubmissions : [];
 
   return (
     <div className="dashboard-content">

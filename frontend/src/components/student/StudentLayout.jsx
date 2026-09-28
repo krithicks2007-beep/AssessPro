@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Home,
   FileText,
@@ -7,7 +7,8 @@ import {
   User,
   LogOut,
   Bell,
-  Building2
+  Building2,
+  Clock
 } from 'lucide-react';
 import api from '../../api';
 import { parseBitEmail, isMasterAccount } from '../../utils/studentParser';
@@ -30,9 +31,10 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const [groups, setGroups] = useState([]);
   const [tests, setTests] = useState([]);
   const [studentSubmissions, setStudentSubmissions] = useState([]);
+  const [assignedStaff, setAssignedStaff] = useState(null);
   const [activeTestTaking, setActiveTestTaking] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   const email = user?.email || '';
   const parsed = parseBitEmail(email);
@@ -53,6 +55,26 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     .substring(0, 2)
     .toUpperCase() || 'ST';
 
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [gData, tData, sData, staffInfo] = await Promise.all([
+        api.getGroups(),
+        api.getTests(),
+        api.getStudentSubmissions(email),
+        api.getAssignedStaff(email)
+      ]);
+      setGroups(gData || []);
+      setTests(tData || []);
+      setAssignedStaff(staffInfo || null);
+      setStudentSubmissions(Array.isArray(sData) ? sData : []);
+    } catch (err) {
+      console.error('Error fetching student dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [email]);
+
   // Real-time 1-second clock ticker for instantaneous test activation
   useEffect(() => {
     const ticker = setInterval(() => setCurrentTime(Date.now()), 1000);
@@ -62,51 +84,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   // Load live groups, tests, and student submissions strictly for this user
   useEffect(() => {
     loadData();
-  }, [email]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const cleanEmail = (email || '').toLowerCase().trim();
-      const localSubs = cleanEmail ? JSON.parse(localStorage.getItem('assesspro_subs_' + cleanEmail) || '[]') : [];
-      const allLocalSubs = JSON.parse(localStorage.getItem('assesspro_all_submissions') || '[]');
-
-      const [gData, tData, sData] = await Promise.all([
-        api.getGroups(),
-        api.getTests(),
-        api.getStudentSubmissions(email)
-      ]);
-      setGroups(gData || []);
-      setTests(tData || []);
-
-      // Combine server submissions and local submissions so completed tests are NEVER lost
-      const subMap = new Map();
-      (sData || []).forEach(s => subMap.set(String(s.test_id), s));
-      allLocalSubs.filter(s => s.student_email?.toLowerCase() === cleanEmail).forEach(s => subMap.set(String(s.test_id), s));
-      localSubs.forEach(s => subMap.set(String(s.test_id), s));
-
-      setStudentSubmissions(Array.from(subMap.values()));
-    } catch (err) {
-      console.error('Error fetching student dashboard data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [loadData]);
 
   const handleTestCompleted = (submission) => {
-    const cleanEmail = (email || '').toLowerCase().trim();
-    try {
-      const studentKey = 'assesspro_subs_' + cleanEmail;
-      const existing = JSON.parse(localStorage.getItem(studentKey) || '[]');
-      const updated = [submission, ...existing.filter(s => String(s.test_id) !== String(submission.test_id))];
-      localStorage.setItem(studentKey, JSON.stringify(updated));
-
-      const allKey = 'assesspro_all_submissions';
-      const existingAll = JSON.parse(localStorage.getItem(allKey) || '[]');
-      const updatedAll = [submission, ...existingAll.filter(s => !(String(s.test_id) === String(submission.test_id) && s.student_email?.toLowerCase() === cleanEmail))];
-      localStorage.setItem(allKey, JSON.stringify(updatedAll));
-    } catch (e) {}
-
     // Update state directly so tests button switches immediately to Submitted and results are instantly visible
     setStudentSubmissions(prev => [
       submission,
@@ -119,7 +99,6 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const safeStudentSubmissions = Array.isArray(studentSubmissions) ? studentSubmissions : [];
 
   const isDemoMaster = isMasterAccount(email);
-  const demoBenchmarks = [85, 72, 76, 80, 84, 78];
 
   // Dynamic real score calculations for individual students
   const completedSubs = safeStudentSubmissions.filter(s => s.status === 'completed');
@@ -129,32 +108,50 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     : 0;
 
   // Filter tests:
-  // - Super Admin sees showcase demo tests (test-101, test-102) + any real tests created by staff
-  // - Fresh / Regular Students only see real tests created by faculty (demo seed tests filtered out)
+  // 1. Draft tests are hidden from students
+  // 2. If test has a specific assigned_students list, ONLY visible if student is included
+  // 3. Otherwise (universal test), visible to all students
   const effectiveTests = safeTests.filter(t => {
-    if (isDemoMaster) return true;
-    return !t.is_demo && t.id !== 'test-101' && t.id !== 'test-102';
+    if (t.status === 'draft') {
+      return false;
+    }
+
+    if (Array.isArray(t.assigned_students) && t.assigned_students.length > 0) {
+      const cleanEmail = (email || '').toLowerCase().trim();
+      return t.assigned_students.some(e => {
+        const val = typeof e === 'string' ? e : e?.email || '';
+        return val.toLowerCase().trim() === cleanEmail;
+      });
+    }
+
+    return true;
   });
 
-  // For Super Admin demo preview account: show realistic populated showcase data
-  // For all other students: show 100% real dynamic data
-  const overallScore = isDemoMaster ? 78 : realOverallScore;
-  const testsCompletedCount = isDemoMaster ? 4 : realTestsCompletedCount;
-  const tasksCompletedCount = isDemoMaster ? 1 : 0;
-  const pendingCount = isDemoMaster ? 2 : Math.max(0, effectiveTests.length - realTestsCompletedCount);
+  const overallScore = realOverallScore;
+  const testsCompletedCount = realTestsCompletedCount;
 
-  // Sidebar navigation items
+  // Notification bell: only count tests that the student has NOT attended yet
+  const pendingTests = effectiveTests.filter(t => 
+    !safeStudentSubmissions.some(s => 
+      (s.test_id && String(s.test_id).trim() === String(t.id).trim()) ||
+      (s.test_title && t.title && s.test_title.trim().toLowerCase() === t.title.trim().toLowerCase())
+    )
+  );
+  const pendingCount = pendingTests.length;
+
+  // Sidebar navigation items matching screenshot
   const navItems = [
     { label: 'Dashboard', icon: Home },
-    { label: 'Tests', icon: FileText },
-    { label: 'Tasks', icon: CheckSquare },
-    { label: 'Results', icon: BarChart2 },
+    { label: 'My Tests', icon: FileText },
+    { label: 'Test History', icon: Clock },
+    { label: 'My Performance', icon: BarChart2 },
     { label: 'Profile', icon: User },
   ];
 
   // Render active tab
   const renderActiveTab = () => {
     switch (activeTab) {
+      case 'My Tests':
       case 'Tests':
         return (
           <Tests
@@ -164,6 +161,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             onLaunchTest={setActiveTestTaking}
           />
         );
+      case 'Test History':
+      case 'My Performance':
       case 'Results':
         return (
           <Results
@@ -172,11 +171,18 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             studentName={studentName}
             email={email}
             isDemoMaster={isDemoMaster}
-            onNavigateToTests={() => setActiveTab('Tests')}
+            onNavigateToTests={() => setActiveTab('My Tests')}
           />
         );
       case 'Tasks':
-        return <Tasks studentDept={studentDept} />;
+        return (
+          <Tasks 
+            studentDept={studentDept} 
+            tasks={effectiveTests.filter(t => t.test_type === 'task')}
+            studentSubmissions={safeStudentSubmissions}
+            onStartTask={(task) => setActiveTestTaking(task)}
+          />
+        );
       case 'Profile':
         return (
           <Profile
@@ -208,11 +214,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             studentYear={studentYear}
             overallScore={overallScore}
             testsCompletedCount={testsCompletedCount}
-            tasksCompletedCount={tasksCompletedCount}
             pendingCount={pendingCount}
-            isDemoMaster={isDemoMaster}
-            demoBenchmarks={demoBenchmarks}
-            onNavigateToTests={() => setActiveTab('Tests')}
+            assignedStaff={assignedStaff}
+            onNavigateToTests={() => setActiveTab('My Tests')}
           />
         );
     }
@@ -274,44 +278,75 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
           </div>
 
           <div className="header-right">
-            <div className="notification-btn" title="Notifications">
-              <Bell size={17} />
-              <span className="notification-badge" style={{ width: 8, height: 8, padding: 0 }} />
+            <div className="notification-btn" title={pendingCount > 0 ? `${pendingCount} Pending Assessment${pendingCount > 1 ? 's' : ''}` : 'No Pending Assessments'} style={{ position: 'relative' }}>
+              <Bell size={18} />
+              {pendingCount > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  background: '#ef4444',
+                  color: '#fff',
+                  borderRadius: '50%',
+                  width: '16px',
+                  height: '16px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '2px solid #ffffff'
+                }}>
+                  {pendingCount}
+                </span>
+              )}
             </div>
 
-            {/* User Pill */}
-            <div
-              onClick={() => setActiveTab('Profile')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                background: '#f3f4f6',
-                padding: '0.35rem 0.75rem',
-                borderRadius: '30px',
-                cursor: 'pointer'
-              }}
-              title="Click to view profile"
-            >
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#1d72fe', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 700 }}>
-                {studentInitials}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{studentName}</span>
-                <span style={{ fontSize: '0.66rem', color: '#6b7280' }}>{studentRegNo}</span>
-              </div>
-            </div>
-
-            {/* Department Pill */}
-            <div className="dept-pill" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#eff6ff', color: '#1d72fe', border: '1px solid #bfdbfe' }}>
-              <Building2 size={13} />
-              <span style={{ fontWeight: 700 }}>{parsed?.deptCode ? parsed.deptCode.toUpperCase() : 'DEPT'} &bull; {studentYear.split(' ')[0]}</span>
+            {/* Department & Year Info Badge */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: '#ffffff',
+              border: '1px solid #cbd5e1',
+              borderRadius: '24px',
+              padding: '0.45rem 1rem',
+              fontSize: '0.84rem',
+              fontWeight: 700,
+              color: '#1e293b',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+              cursor: 'default'
+            }}>
+              <span>{studentYear} - {studentDept}</span>
             </div>
           </div>
         </header>
 
         {/* Active Tab Content */}
-        {renderActiveTab()}
+        <div className="dashboard-content">
+          {loading ? (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '60vh',
+              gap: '1.25rem',
+              color: '#64748b'
+            }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '50%',
+                border: '4px solid #e2e8f0',
+                borderTopColor: '#1d72fe',
+                animation: 'spin 0.8s linear infinite'
+              }} />
+              <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Loading your dashboard...</div>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+          ) : renderActiveTab()}
+        </div>
       </main>
 
       {/* Test Taking Environment Modal */}
