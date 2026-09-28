@@ -324,7 +324,8 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
     // personal/external users MUST explicitly choose Student or Staff if they are new or have not completed their profile!
     if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== 'krithickrajs.cs25@bitsathy.ac.in') {
       // Check if user has explicit approved staff request
-      const approvedReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'approved');
+      const staffReq = await getStaffRequestFromDB(cleanEmail);
+      const approvedReq = staffReq?.status === 'approved' ? staffReq : null;
       if (approvedReq || profile?.UserType === 'staff') {
         if (profile?.UserType !== 'staff' && supabase) {
           try { await supabase.from('users').update({ UserType: 'staff' }).eq('mailid', cleanEmail); } catch (e) {}
@@ -333,7 +334,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
       }
 
       // Check if user has pending staff request
-      const pendingReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'pending');
+      const pendingReq = staffReq?.status === 'pending' ? staffReq : null;
       if (pendingReq || profile?.UserType === 'pending_staff') {
         return res.json({ user, profile: null, role: 'pending_staff' });
       }
@@ -409,7 +410,8 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
       }
 
       // Check if user has an approved or pending staff request
-      const approvedReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'approved');
+      const staffReq = await getStaffRequestFromDB(cleanEmail);
+      const approvedReq = staffReq?.status === 'approved' ? staffReq : null;
       if (approvedReq) {
         profile = {
           id: user.id,
@@ -423,7 +425,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         return res.json({ user, profile, role: 'staff' });
       }
 
-      const pendingReq = inMemoryStaffRequests.find(r => r.email.toLowerCase() === cleanEmail && r.status === 'pending');
+      const pendingReq = staffReq?.status === 'pending' ? staffReq : null;
       if (pendingReq) {
         return res.json({ user, profile: null, role: 'pending_staff' });
       }
