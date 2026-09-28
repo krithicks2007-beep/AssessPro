@@ -360,6 +360,12 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         return res.json({ user, profile, role: 'student' });
       }
 
+      // Check if the user explicitly chose to be a student
+      if (profile?.UserType === 'student') {
+        // If they already chose student, let them be a student
+        return res.json({ user, profile, role: 'student' });
+      }
+
       // If user is new or has no profile: MUST prompt role verification / selection!
       // Synchronize public.users UserType to 'unassigned' if it was auto-set by trigger
       if (supabase && profile && profile.UserType !== 'unassigned') {
