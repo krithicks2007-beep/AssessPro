@@ -1,7 +1,6 @@
 // Vercel Serverless Function entry point
-// This file re-exports the Express app from backend/server.js
-// so Vercel can route /api/* requests to it.
-
-import app from '../backend/server.js';
-
-export default app;
+// Uses dynamic import since backend uses ESM ("type": "module")
+export default async function handler(req, res) {
+  const { default: app } = await import('../backend/server.js');
+  return app(req, res);
+}
