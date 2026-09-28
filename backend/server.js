@@ -271,13 +271,6 @@ app.get('/api/student/assigned-staff', async (req, res) => {
   res.json({ staffName: null, staffId: null, assigned_staff_name: null, assigned_staff_id: null });
 });
 
-    staffName: null,
-    staffId: null,
-    assigned_staff_name: null,
-    assigned_staff_id: null
-  });
-});
-
 // -------------------------------------------------------------
 // 3. USER PROFILE & ROLE AUTHENTICATION ENDPOINTS
 // -------------------------------------------------------------
@@ -1312,11 +1305,13 @@ app.post('/api/admin/reset-database', verifyAuth, async (req, res) => {
   }
 });
 
-// Start Express Server
-app.listen(PORT, () => {
-  console.log(`AssessPro Backend API running on http://localhost:${PORT}`);
-  console.log(`Allowed Domain Enforcement: @${ALLOWED_DOMAIN}`);
-});
+// Start Express Server (only in local dev, not on Vercel serverless)
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`AssessPro Backend API running on http://localhost:${PORT}`);
+    console.log(`Allowed Domain Enforcement: @${ALLOWED_DOMAIN}`);
+  });
+}
 
-// Export for Vercel serverless / services
+// Export for Vercel serverless
 export default app;
