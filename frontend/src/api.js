@@ -605,6 +605,10 @@ export const api = {
         if (data && (data.id || data.score !== undefined)) {
           submitted = data;
         }
+      } else {
+        const errData = await safeJson(res);
+        const serverError = errData?.error || await res.text();
+        throw new Error(serverError || 'Submission was not confirmed by the server');
       }
     } catch (err) {
       throw new Error(`Submission could not be saved: ${err.message}`);

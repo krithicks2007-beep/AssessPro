@@ -1177,9 +1177,11 @@ app.post('/api/tests/:id/submit', verifyAuth, requireRoles('student'), async (re
     status: 'completed'
   };
 
+  await supabase.from('test_submissions').delete().match({ test_id: id, student_email: cleanEmail });
+  
   const { data: inserted, error: subErr } = await supabase
     .from('test_submissions')
-    .upsert(subPayload, { onConflict: 'test_id,student_email' })
+    .insert(subPayload)
     .select().maybeSingle();
 
   if (subErr) {
