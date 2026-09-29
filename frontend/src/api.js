@@ -96,7 +96,9 @@ export const api = {
   async getGroups() {
     let serverGroups = [];
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/groups`);
+      const res = await fetchWithTimeout(`${API_BASE}/groups`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (Array.isArray(data) && data.length > 0) serverGroups = data;
@@ -356,7 +358,9 @@ export const api = {
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/tests${queryString}`);
+      const res = await fetchWithTimeout(`${API_BASE}/tests${queryString}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (Array.isArray(data)) {
@@ -423,7 +427,9 @@ export const api = {
 
   async getTestById(id) {
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/tests/${id}`);
+      const res = await fetchWithTimeout(`${API_BASE}/tests/${id}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (data && data.id) return data;
