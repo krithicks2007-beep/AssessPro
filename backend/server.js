@@ -1120,7 +1120,7 @@ app.delete('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), async (
 
 
 // Submit a test
-app.post('/api/tests/:id/submit', verifyAuth, requireRoles('student', 'staff', 'admin'), async (req, res) => {
+app.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
   const { answers = {}, tabSwitchCount = 0, timeTakenSeconds = 0 } = req.body;
