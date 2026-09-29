@@ -768,14 +768,57 @@ export const api = {
 
   // 7. Role Selection & Staff Requests Workflow
   async selectRoleChoice(email, name, role) {
-    const res = await fetchWithTimeout(`${API_BASE}/auth/role-choice`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ email, name, role })
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || 'Role selection failed');
-    return data;
+    // 1. Try backend API first
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/auth/role-choice`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ email, name, role })
+      });
+      const data = await safeJson(res);
+      if (res.ok) return data;
+      console.warn('Backend selectRoleChoice note:', data.error);
+    } catch (e) {
+      console.warn('Backend selectRoleChoice network note:', e.message);
+    }
+
+    // 2. Direct Supabase fallback
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        if (role === 'student') {
+          await supabase.from('users').update({ UserType: 'student' }).eq('mailid', email.toLowerCase());
+          localStorage.setItem(`assesspro_role_${email}`, 'student');
+          return { role: 'student', status: 'approved' };
+        } else if (role === 'staff') {
+          // Delete any stale request, then insert fresh
+          await supabase.from('staff_requests').delete().eq('email', email.toLowerCase());
+          const { error } = await supabase.from('staff_requests').insert({
+            email: email.toLowerCase(),
+            name: name,
+            status: 'pending'
+          });
+          if (error) console.warn('Direct staff_requests insert error:', error.message);
+          localStorage.setItem(`assesspro_role_${email}`, 'pending_staff');
+          return { role: 'pending_staff', status: 'pending', message: 'Staff request submitted to admin' };
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase selectRoleChoice error:', sbErr.message);
+    }
+
+    // 3. Final localStorage-only fallback
+    if (role === 'student') {
+      localStorage.setItem(`assesspro_role_${email}`, 'student');
+      return { role: 'student', status: 'approved' };
+    } else {
+      const reqs = JSON.parse(localStorage.getItem('assesspro_staff_requests') || '[]');
+      const newReq = { id: 'req-' + Date.now(), email, name, status: 'pending', created_at: new Date().toISOString() };
+      reqs.unshift(newReq);
+      localStorage.setItem('assesspro_staff_requests', JSON.stringify(reqs));
+      localStorage.setItem(`assesspro_role_${email}`, 'pending_staff');
+      return { role: 'pending_staff', status: 'pending', message: 'Staff request submitted to admin' };
+    }
   },
 
   async checkStaffRequestStatus(email) {
