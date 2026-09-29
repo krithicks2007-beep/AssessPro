@@ -389,16 +389,26 @@ export default function App() {
                 email: currentUser?.email || savedData.email
               };
 
-              // Persist through the authenticated API first. Local cache is never authoritative.
-              await api.saveStudentProfile(fullData);
-
-              // Keep the browser cache only after the server confirms the write.
-              const supabase = getSupabaseClient();
-              if (supabase) {
-                await saveStudentProfileDirect(supabase, fullData);
+              // 1. Try to persist through the authenticated API first.
+              try {
+                await api.saveStudentProfile(fullData);
+              } catch (apiErr) {
+                console.warn('Backend profile save failed (falling back to direct DB):', apiErr.message);
               }
 
-              // 2. Local storage cache for instant offline & page reload persistence
+              // 2. Direct Supabase Fallback
+              const supabase = getSupabaseClient();
+              let fallbackSuccess = false;
+              if (supabase) {
+                try {
+                  const saved = await saveStudentProfileDirect(supabase, fullData);
+                  if (saved) fallbackSuccess = true;
+                } catch (sbErr) {
+                  console.warn('Direct Supabase profile save failed:', sbErr.message);
+                }
+              }
+
+              // 3. Local storage cache for instant offline & page reload persistence
               if (fullData.email) {
                 localStorage.setItem(
                   `assesspro_student_prof_${fullData.email.toLowerCase()}`, 
