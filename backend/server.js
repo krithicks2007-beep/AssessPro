@@ -1164,9 +1164,21 @@ app.post('/api/tests/:id/submit', verifyAuth, requireRoles('student'), async (re
   score = Math.min(maxScore, Math.round(score));
   const percentage = maxScore > 0 ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
 
+  // Verify this user has a row in public.students before setting the FK
+  // External/Gmail users who haven't completed student profile will not have one
+  let studentFkId = null;
+  try {
+    const { data: stRow } = await supabase
+      .from('students')
+      .select('id')
+      .eq('id', req.user.id)
+      .maybeSingle();
+    if (stRow) studentFkId = req.user.id;
+  } catch (e) {}
+
   const subPayload = {
     test_id: id,
-    student_id: req.user.id,
+    student_id: studentFkId,   // null if student profile doesn't exist yet (avoids FK violation)
     student_name: req.user.user_metadata?.full_name || cleanEmail.split('@')[0] || 'Student',
     student_email: cleanEmail,
     score, max_score: maxScore, answers,
