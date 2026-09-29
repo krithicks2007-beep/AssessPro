@@ -68,8 +68,10 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
         timeLeftSeconds,
         tabSwitchCount
       }));
+      sessionStorage.setItem('active_exam_id', test.id);
     } else if (stage === 'COMPLETED' && test && test.id) {
       sessionStorage.removeItem(`exam_state_${test.id}`);
+      sessionStorage.removeItem('active_exam_id');
     }
   }, [stage, answers, timeLeftSeconds, tabSwitchCount, test]);
 

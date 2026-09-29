@@ -95,7 +95,7 @@ const verifyAuth = async (req, res, next) => {
       .select('UserType')
       .eq('id', user.id)
       .maybeSingle();
-    req.userRole = profile?.UserType || resolveRoleFromEmail(user.email);
+    req.userRole = String(profile?.UserType || resolveRoleFromEmail(user.email)).toLowerCase().trim();
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Unable to verify session' });

@@ -86,6 +86,19 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     loadData();
   }, [loadData]);
 
+  // Auto-resume active exam if the user refreshed the page during a test
+  useEffect(() => {
+    if (!loading && tests.length > 0 && !activeTestTaking) {
+      const activeExamId = sessionStorage.getItem('active_exam_id');
+      if (activeExamId) {
+        const testToResume = tests.find(t => String(t.id) === String(activeExamId));
+        if (testToResume) {
+          setActiveTestTaking(testToResume);
+        }
+      }
+    }
+  }, [loading, tests, activeTestTaking]);
+
   const handleTestCompleted = (submission) => {
     // Update state directly so tests button switches immediately to Submitted and results are instantly visible
     setStudentSubmissions(prev => [
