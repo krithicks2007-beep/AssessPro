@@ -40,6 +40,40 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
   const lastViolationTimeRef = useRef(0);
   const autoSubmitRef = useRef(null);
 
+  // Restore state from sessionStorage on initial load
+  useEffect(() => {
+    if (test && test.id) {
+      const savedState = sessionStorage.getItem(`exam_state_${test.id}`);
+      if (savedState) {
+        try {
+          const parsed = JSON.parse(savedState);
+          if (parsed.stage === 'IN_EXAM') {
+            setStage('IN_EXAM');
+            setAnswers(parsed.answers || {});
+            setTabSwitchCount(parsed.tabSwitchCount || 0);
+          }
+        } catch (e) {
+          console.warn('Failed to parse saved exam state');
+        }
+      }
+    }
+  }, [test]);
+
+  // Save state to sessionStorage whenever it changes
+  useEffect(() => {
+    if (stage === 'IN_EXAM' && test && test.id) {
+      sessionStorage.setItem(`exam_state_${test.id}`, JSON.stringify({
+        stage,
+        answers,
+        timeLeftSeconds,
+        tabSwitchCount
+      }));
+    } else if (stage === 'COMPLETED' && test && test.id) {
+      sessionStorage.removeItem(`exam_state_${test.id}`);
+    }
+  }, [stage, answers, timeLeftSeconds, tabSwitchCount, test]);
+  const autoSubmitRef = useRef(null);
+
   // Fullscreen Helper Functions
   const requestFullscreenMode = async () => {
     try {
