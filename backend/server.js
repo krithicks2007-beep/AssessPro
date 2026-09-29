@@ -576,8 +576,11 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admi
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
 
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const queryStr = isUUID ? `id.eq.${id},email.eq.${id.toLowerCase()}` : `email.eq.${id.toLowerCase()}`;
+
   const { data: targetReq } = await supabase.from('staff_requests')
-    .select('*').or(`id.eq.${id},email.eq.${id.toLowerCase()}`).maybeSingle();
+    .select('*').or(queryStr).maybeSingle();
   if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
@@ -612,8 +615,11 @@ app.post('/api/admin/staff-requests/:id/reject', verifyAuth, requireRoles('admin
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
 
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const queryStr = isUUID ? `id.eq.${id},email.eq.${id.toLowerCase()}` : `email.eq.${id.toLowerCase()}`;
+
   const { data: targetReq } = await supabase.from('staff_requests')
-    .select('*').or(`id.eq.${id},email.eq.${id.toLowerCase()}`).maybeSingle();
+    .select('*').or(queryStr).maybeSingle();
   if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
