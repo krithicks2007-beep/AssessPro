@@ -586,7 +586,7 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admi
   const cleanEmail = targetReq.email.toLowerCase().trim();
   const { error: approvalError } = await supabase
     .from('staff_requests')
-    .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+    .update({ status: 'approved' })
     .eq('id', targetReq.id);
   if (approvalError) {
     return res.status(500).json({ error: 'Failed to approve staff request', details: approvalError.message });
@@ -623,7 +623,7 @@ app.post('/api/admin/staff-requests/:id/reject', verifyAuth, requireRoles('admin
   if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
-  await supabase.from('staff_requests').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
+  await supabase.from('staff_requests').update({ status: 'rejected' }).eq('id', targetReq.id);
   try { await supabase.from('users').update({ UserType: 'unassigned' }).eq('mailid', cleanEmail); } catch (e) {}
 
   res.json({ success: true, message: `Staff request rejected for ${targetReq.email}` });

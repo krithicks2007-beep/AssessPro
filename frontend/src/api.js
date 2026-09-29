@@ -895,7 +895,7 @@ export const api = {
       if (supabase) {
         const cleanEmail = (email || '').toLowerCase().trim();
         // Update staff_requests table
-        await supabase.from('staff_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('email', cleanEmail);
+        await supabase.from('staff_requests').update({ status: 'approved' }).eq('email', cleanEmail);
         
         // Upsert into users table as staff
         const { data: exUser } = await supabase.from('users').select('id, name').eq('mailid', cleanEmail).maybeSingle();
@@ -936,7 +936,7 @@ export const api = {
       const supabase = getSupabaseClient();
       if (supabase) {
         const cleanEmail = (email || '').toLowerCase().trim();
-        await supabase.from('staff_requests').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('email', cleanEmail);
+        await supabase.from('staff_requests').update({ status: 'rejected' }).eq('email', cleanEmail);
         await supabase.from('users').update({ UserType: 'unassigned' }).eq('mailid', cleanEmail);
       }
     } catch (sbErr) {
