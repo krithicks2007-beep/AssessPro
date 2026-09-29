@@ -28,6 +28,9 @@ if (supabaseUrl && supabaseKey) {
   supabase = createClient(supabaseUrl, supabaseKey);
 }
 
+// In-memory role overrides (used while a session is active to speed up role checks)
+const userRoleOverrides = new Map();
+
 // Helper: lookup staff request status from Supabase (replaces inMemoryStaffRequests)
 const getStaffRequestFromDB = async (email) => {
   if (!supabase || !email) return null;
@@ -766,7 +769,11 @@ app.post('/api/staff/profile', verifyAuth, requireOwnEmail, async (req, res) => 
     id: targetUserId,
     staff_code: sc,
     department: department || 'Computer Science and Engineering',
-    designation: designation || 'Assistant Professor'
+    designation: designation || 'Assistant Professor',
+    phone: phone || null,
+    specialization: specialization || null,
+    office_location: office_location || null,
+    institution: institution || null
   });
 
   if (error) return res.status(500).json({ error: 'Failed to save staff profile: ' + error.message });

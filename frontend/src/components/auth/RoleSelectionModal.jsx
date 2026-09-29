@@ -17,7 +17,9 @@ export default function RoleSelectionModal({ user, onRoleConfirmed, onSignOut })
       try {
         const res = await api.checkStaffRequestStatus(email);
         if (res?.role === 'staff' || res?.status === 'approved') {
+          clearInterval(timer);
           onRoleConfirmed('staff');
+          return;
         } else if (res?.status === 'pending' || res?.role === 'pending_staff') {
           setIsPending(true);
         }
@@ -26,15 +28,13 @@ export default function RoleSelectionModal({ user, onRoleConfirmed, onSignOut })
 
     checkStatus();
 
-    // Poll every 3 seconds if currently pending approval
-    if (isPending) {
-      timer = setInterval(checkStatus, 3000);
-    }
+    // Always poll every 3 seconds so approval is detected quickly without a page reload
+    timer = setInterval(checkStatus, 3000);
 
     return () => {
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
-  }, [email, isPending, onRoleConfirmed]);
+  }, [email, onRoleConfirmed]);
 
   const handleSelectStudent = async () => {
     setLoading(true);

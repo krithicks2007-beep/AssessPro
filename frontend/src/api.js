@@ -92,6 +92,28 @@ export const api = {
     return data;
   },
 
+  // 3b. Active Sessions Heartbeat
+  async sendHeartbeat(email, name, role, status = 'Online - Active', testId = null) {
+    if (!email) return;
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        await supabase
+          .from('active_sessions')
+          .upsert({
+            user_email: email,
+            user_name: name,
+            role: role,
+            status: status,
+            test_id: testId,
+            last_heartbeat: new Date().toISOString()
+          }, { onConflict: 'user_email' });
+      }
+    } catch (err) {
+      console.warn('Heartbeat failed:', err.message);
+    }
+  },
+
   // 4. Groups
   async getGroups() {
     let serverGroups = [];
@@ -751,11 +773,34 @@ export const api = {
     try {
       const supabase = getSupabaseClient();
       if (supabase) {
-        const { data, error } = await supabase
+        const { data: users, error } = await supabase
           .from('users')
           .select('*')
           .order('created_at', { ascending: false });
-        if (!error && Array.isArray(data)) return data;
+          
+        if (!error && Array.isArray(users)) {
+          // Fetch real live sessions
+          const { data: sessions } = await supabase
+            .from('active_sessions')
+            .select('*')
+            .gte('last_heartbeat', new Date(Date.now() - 5 * 60000).toISOString()); // active in last 5 mins
+            
+          const sessionMap = new Map();
+          if (sessions) {
+            sessions.forEach(s => sessionMap.set(s.user_email, s));
+          }
+          
+          return users.map(u => {
+            const email = u.mailid || u.email;
+            const liveSession = sessionMap.get(email);
+            return {
+              ...u,
+              live_status: liveSession ? liveSession.status : 'Offline',
+              last_heartbeat: liveSession ? liveSession.last_heartbeat : null,
+              active_test_id: liveSession ? liveSession.test_id : null
+            };
+          });
+        }
         if (error) throw new Error('Supabase: ' + error.message);
       }
     } catch (e) {

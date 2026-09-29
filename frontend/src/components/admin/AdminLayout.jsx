@@ -18,6 +18,7 @@ import api from '../../api';
 export default function AdminDashboard({ user, onSignOut }) {
   const [usersList, setUsersList] = useState([]);
   const [staffRequests, setStaffRequests] = useState([]);
+  const [testsList, setTestsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [filterRole, setFilterRole] = useState('all');
@@ -30,14 +31,24 @@ export default function AdminDashboard({ user, onSignOut }) {
     try {
       const data = await api.getAdminUsers();
       const safeData = Array.isArray(data) ? data : [];
-      const mapped = safeData.map(u => ({
-        id: u.id,
-        name: u.name || u.mailid?.split('@')[0] || 'User',
-        email: u.mailid || u.email,
-        role: u.UserType || u.role || 'student',
-        status: 'Active',
-        lastLogin: 'Authenticated account'
-      }));
+      const mapped = safeData.map((u, index) => {
+        const role = (u.UserType || u.role || 'student').toLowerCase();
+        
+        // If the real DB live_status exists (from active_sessions), use it
+        const hasLiveStatus = !!u.live_status;
+        const isOnline = hasLiveStatus ? u.live_status.includes('Online') || u.live_status.includes('In Exam') : false;
+        const statusStr = hasLiveStatus ? u.live_status : 'Offline';
+        
+        return {
+          id: u.id,
+          name: u.name || u.mailid?.split('@')[0] || 'User',
+          email: u.mailid || u.email,
+          role: role,
+          status: statusStr,
+          isOnline: isOnline,
+          lastLogin: hasLiveStatus && u.last_heartbeat ? new Date(u.last_heartbeat).toLocaleTimeString() : 'Last seen recently'
+        };
+      });
       setUsersList(mapped);
     } catch (err) {
       console.error('Error fetching admin users:', err);
@@ -56,12 +67,22 @@ export default function AdminDashboard({ user, onSignOut }) {
     }
   }, []);
 
+  const loadTests = useCallback(async () => {
+    try {
+      const tests = await api.getTests();
+      setTestsList(tests || []);
+    } catch(err) {
+      console.warn('Error loading tests:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadUsers();
     loadStaffRequests();
+    loadTests();
     const interval = setInterval(loadStaffRequests, 3500);
     return () => clearInterval(interval);
-  }, [loadUsers, loadStaffRequests]);
+  }, [loadUsers, loadStaffRequests, loadTests]);
 
   const handleApproveStaff = async (id, email) => {
     try {
@@ -118,6 +139,7 @@ export default function AdminDashboard({ user, onSignOut }) {
     { label: 'Dashboard', icon: Home },
     { label: 'User Directory', icon: Users },
     { label: 'Staff Requests', icon: UserPlus },
+    { label: 'Assessments & Results', icon: ShieldCheck },
     { label: 'Settings', icon: Settings },
   ];
 
@@ -281,97 +303,227 @@ export default function AdminDashboard({ user, onSignOut }) {
           {/* Main Layout Grid */}
           <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: '1fr' }}>
             
-            {/* Staff Requests Panel */}
-            <div className="table-card">
-              <div className="table-header-action">
-                <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
-                    Staff / Faculty Access Requests
-                  </h3>
-                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
-                    Accounts requesting Staff role to create tests and manage students
-                  </p>
+            {activeTab === 'Dashboard' && (
+              <div style={{ display: 'grid', gap: '1.5rem' }}>
+                <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <h3 style={{ marginTop: 0, fontSize: '1.1rem' }}>Welcome to the Admin Dashboard</h3>
+                  <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Use the sidebar to navigate to User Directory, manage Staff Requests, or monitor Assessments.</p>
+                  
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                    <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px', flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '1.2rem' }}>{usersList.filter(u => u.isOnline).length}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Users Currently Online</div>
+                    </div>
+                    <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px', flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '1.2rem' }}>{usersList.filter(u => u.status === 'In Exam').length}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Users Attending Tests</div>
+                    </div>
+                    <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px', flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '1.2rem' }}>{testsList.length}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Total Assessments Issued</div>
+                    </div>
+                  </div>
                 </div>
               </div>
+            )}
 
-              {staffRequests.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.9rem', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-                  <UserPlus size={32} color="#cbd5e1" style={{ margin: '0 auto 0.5rem' }} />
-                  <div>No staff requests submitted yet.</div>
+            {activeTab === 'Staff Requests' && (
+              <div className="table-card">
+                <div className="table-header-action">
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                      Staff / Faculty Access Requests
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
+                      Accounts requesting Staff role to create tests and manage students
+                    </p>
+                  </div>
                 </div>
-              ) : (
+
+                {staffRequests.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '0.9rem', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                    <UserPlus size={32} color="#cbd5e1" style={{ margin: '0 auto 0.5rem' }} />
+                    <div>No staff requests submitted yet.</div>
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="custom-table">
+                      <thead>
+                        <tr>
+                          <th>Applicant Name</th>
+                          <th>Email Address</th>
+                          <th>Status</th>
+                          <th>Requested On</th>
+                          <th style={{ textAlign: 'right' }}>Admin Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {staffRequests.map((req) => (
+                          <tr key={req.id || req.email}>
+                            <td style={{ fontWeight: 600 }}>{req.name}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)' }}>{req.email}</td>
+                            <td>
+                              <span className={req.status === 'approved' ? 'status-pill-completed' : (req.status === 'rejected' ? 'status-pill-rejected' : 'group-badge-purple')}
+                                    style={req.status === 'rejected' ? { background: '#fef2f2', color: '#dc2626', padding: '0.2rem 0.55rem', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem' } : (req.status === 'pending' ? { background: '#fff7ed', color: '#ea580c' } : {})}
+                              >
+                                {req.status}
+                              </span>
+                            </td>
+                            <td style={{ color: '#64748b' }}>
+                              {req.created_at ? new Date(req.created_at).toLocaleDateString() : 'Recent'}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              {req.status === 'pending' ? (
+                                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                                  <button
+                                    onClick={() => handleApproveStaff(req.id, req.email)}
+                                    style={{
+                                      background: '#10b981',
+                                      color: '#fff',
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      padding: '0.35rem 0.6rem',
+                                      fontWeight: 700,
+                                      fontSize: '0.75rem',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.3rem'
+                                    }}
+                                  >
+                                    <Check size={14} />
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectStaff(req.id, req.email)}
+                                    style={{
+                                      background: '#fef2f2',
+                                      color: '#ef4444',
+                                      border: '1px solid #fca5a5',
+                                      borderRadius: '6px',
+                                      padding: '0.35rem 0.6rem',
+                                      fontWeight: 600,
+                                      fontSize: '0.75rem',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.3rem'
+                                    }}
+                                  >
+                                    <X size={14} />
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                                  {req.status === 'approved' ? 'Staff Active' : 'Dismissed'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'User Directory' && (
+              <div className="table-card">
+                <div className="table-header-action" style={{ flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                      Authorized Institutional Users
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
+                      Users authenticated through the configured Supabase providers.
+                    </p>
+                  </div>
+                  
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button 
+                      className={`btn-table-view`}
+                      style={filterRole === 'all' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
+                      onClick={() => setFilterRole('all')}
+                    >
+                      All
+                    </button>
+                    <button 
+                      className={`btn-table-view`}
+                      style={filterRole === 'student' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
+                      onClick={() => setFilterRole('student')}
+                    >
+                      Students
+                    </button>
+                    <button 
+                      className={`btn-table-view`}
+                      style={filterRole === 'staff' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
+                      onClick={() => setFilterRole('staff')}
+                    >
+                      Staff
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ overflowX: 'auto' }}>
                   <table className="custom-table">
                     <thead>
                       <tr>
-                        <th>Applicant Name</th>
-                        <th>Email Address</th>
+                        <th>Name</th>
+                        <th>Institutional Email</th>
+                        <th>Role</th>
                         <th>Status</th>
-                        <th>Requested On</th>
-                        <th style={{ textAlign: 'right' }}>Admin Actions</th>
+                        <th>Activity</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {staffRequests.map((req) => (
-                        <tr key={req.id || req.email}>
-                          <td style={{ fontWeight: 600 }}>{req.name}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{req.email}</td>
+                      {filteredUsers.map((u) => (
+                        <tr key={u.id}>
+                          <td style={{ fontWeight: 600 }}>{u.name}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)' }}>{u.email}</td>
                           <td>
-                            <span className={req.status === 'approved' ? 'status-pill-completed' : (req.status === 'rejected' ? 'status-pill-rejected' : 'group-badge-purple')}
-                                  style={req.status === 'rejected' ? { background: '#fef2f2', color: '#dc2626', padding: '0.2rem 0.55rem', borderRadius: '4px', fontWeight: 600, fontSize: '0.72rem' } : (req.status === 'pending' ? { background: '#fff7ed', color: '#ea580c' } : {})}
-                            >
-                              {req.status}
+                            <span className={u.role === 'admin' ? 'group-badge-purple' : (u.role === 'staff' ? 'group-badge-blue' : 'group-badge-green')}
+                                  style={{ textTransform: 'capitalize' }}>
+                              {u.role}
                             </span>
                           </td>
-                          <td style={{ color: '#64748b' }}>
-                            {req.created_at ? new Date(req.created_at).toLocaleDateString() : 'Recent'}
+                          <td>
+                            <span style={{ 
+                              color: u.status === 'In Exam' ? '#f59e0b' : (u.isOnline ? '#059669' : '#64748b'), 
+                              display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.8rem' 
+                            }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: u.status === 'In Exam' ? '#f59e0b' : (u.isOnline ? '#10b981' : '#94a3b8') }} />
+                              {u.status}
+                            </span>
                           </td>
+                          <td style={{ color: '#64748b' }}>{u.lastLogin}</td>
                           <td style={{ textAlign: 'right' }}>
-                            {req.status === 'pending' ? (
-                              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                                <button
-                                  onClick={() => handleApproveStaff(req.id, req.email)}
-                                  style={{
-                                    background: '#10b981',
-                                    color: '#fff',
-                                    border: 'none',
-                                    borderRadius: '6px',
-                                    padding: '0.35rem 0.6rem',
-                                    fontWeight: 700,
-                                    fontSize: '0.75rem',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.3rem'
-                                  }}
-                                >
-                                  <Check size={14} />
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => handleRejectStaff(req.id, req.email)}
-                                  style={{
-                                    background: '#fef2f2',
-                                    color: '#ef4444',
-                                    border: '1px solid #fca5a5',
-                                    borderRadius: '6px',
-                                    padding: '0.35rem 0.6rem',
-                                    fontWeight: 600,
-                                    fontSize: '0.75rem',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.3rem'
-                                  }}
-                                >
-                                  <X size={14} />
-                                  Reject
-                                </button>
-                              </div>
-                            ) : (
-                              <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                                {req.status === 'approved' ? 'Staff Active' : 'Dismissed'}
-                              </span>
+                            {u.email !== 'krithickrajs.cs25@bitsathy.ac.in' && (
+                              <button
+                                onClick={() => handleDeleteUser(u.id, u.email, u.name)}
+                                title="Delete User Completely"
+                                style={{
+                                  background: '#fef2f2',
+                                  color: '#dc2626',
+                                  border: '1px solid #fecaca',
+                                  borderRadius: '6px',
+                                  padding: '0.35rem 0.65rem',
+                                  fontSize: '0.74rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  transition: 'all 0.15s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = '#dc2626'; e.currentTarget.style.color = '#fff'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; }}
+                              >
+                                <Trash2 size={13} />
+                                Delete
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -379,109 +531,70 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
-
-            {/* Users Directory Panel */}
-            <div className="table-card">
-              <div className="table-header-action" style={{ flexWrap: 'wrap', gap: '1rem' }}>
-                <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
-                    Authorized Institutional Users
-                  </h3>
-                  <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
-                    Users authenticated through the configured Supabase providers.
-                  </p>
-                </div>
-                
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button 
-                    className={`btn-table-view`}
-                    style={filterRole === 'all' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                    onClick={() => setFilterRole('all')}
-                  >
-                    All
-                  </button>
-                  <button 
-                    className={`btn-table-view`}
-                    style={filterRole === 'student' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                    onClick={() => setFilterRole('student')}
-                  >
-                    Students
-                  </button>
-                  <button 
-                    className={`btn-table-view`}
-                    style={filterRole === 'staff' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                    onClick={() => setFilterRole('staff')}
-                  >
-                    Staff
-                  </button>
-                </div>
               </div>
+            )}
 
-              <div style={{ overflowX: 'auto' }}>
-                <table className="custom-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Institutional Email</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Activity</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map((u) => (
-                      <tr key={u.id}>
-                        <td style={{ fontWeight: 600 }}>{u.name}</td>
-                        <td style={{ fontFamily: 'var(--font-mono)' }}>{u.email}</td>
-                        <td>
-                          <span className={u.role === 'admin' ? 'group-badge-purple' : (u.role === 'staff' ? 'group-badge-blue' : 'group-badge-green')}
-                                style={{ textTransform: 'capitalize' }}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td>
-                          <span style={{ color: '#059669', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.8rem' }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
-                            {u.status}
-                          </span>
-                        </td>
-                        <td style={{ color: '#64748b' }}>{u.lastLogin}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          {u.email !== 'krithickrajs.cs25@bitsathy.ac.in' && (
-                            <button
-                              onClick={() => handleDeleteUser(u.id, u.email, u.name)}
-                              title="Delete User Completely"
-                              style={{
-                                background: '#fef2f2',
-                                color: '#dc2626',
-                                border: '1px solid #fecaca',
-                                borderRadius: '6px',
-                                padding: '0.35rem 0.65rem',
-                                fontSize: '0.74rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '0.35rem',
-                                transition: 'all 0.15s'
-                              }}
-                              onMouseEnter={(e) => { e.currentTarget.style.background = '#dc2626'; e.currentTarget.style.color = '#fff'; }}
-                              onMouseLeave={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; }}
-                            >
-                              <Trash2 size={13} />
-                              Delete
-                            </button>
-                          )}
-                        </td>
+            {activeTab === 'Assessments & Results' && (
+              <div className="table-card">
+                <div className="table-header-action">
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+                      All Platform Assessments
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
+                      Tests issued by faculty members across the platform
+                    </p>
+                  </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th>Test Title</th>
+                        <th>Created By</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                        <th>Created At</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {testsList.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
+                            No assessments found on the platform.
+                          </td>
+                        </tr>
+                      ) : (
+                        testsList.map(test => (
+                          <tr key={test.id}>
+                            <td style={{ fontWeight: 600 }}>{test.title}</td>
+                            <td style={{ fontSize: '0.85rem' }}>{test.created_by_email || test.userEmail || 'Faculty'}</td>
+                            <td>{test.duration_minutes || test.durationMinutes || 30} mins</td>
+                            <td>
+                              <span className="status-pill-completed" style={{ textTransform: 'capitalize' }}>
+                                {test.status || 'Active'}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                              {test.created_at ? new Date(test.created_at).toLocaleDateString() : 'Recent'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
+            
+            {activeTab === 'Settings' && (
+              <div style={{ background: '#fff', padding: '2rem', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'center', color: '#64748b' }}>
+                <Settings size={32} style={{ marginBottom: '1rem', color: '#cbd5e1' }} />
+                <h3>Platform Settings</h3>
+                <p>Global platform configuration options will be available here.</p>
+              </div>
+            )}
 
           </div>
         </div>

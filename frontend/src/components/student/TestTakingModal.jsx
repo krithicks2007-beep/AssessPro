@@ -172,7 +172,7 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     handleSubmitExam();
   };
 
-  // 1. Tab Switch, Blur & Fullscreen Event Listeners with Debounce
+  // 1. Tab Switch, Blur, Fullscreen & Anti-Cheating Event Listeners
   useEffect(() => {
     if (stage !== 'IN_EXAM') return;
 
@@ -202,16 +202,41 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
       }
     };
 
+    // Anti-cheating: Prevent right click
+    const handleContextMenu = (e) => e.preventDefault();
+
+    // Anti-cheating: Prevent Ctrl/Cmd + C, V, X, P
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'p', 'a', 's'].includes(e.key.toLowerCase())) {
+        e.preventDefault();
+      }
+    };
+
+    // Anti-cheating: Prevent copy, cut, paste
+    const handleClipboard = (e) => e.preventDefault();
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('blur', handleWindowBlur);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('copy', handleClipboard);
+    document.addEventListener('cut', handleClipboard);
+    document.addEventListener('paste', handleClipboard);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleWindowBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      
+      document.removeEventListener('contextmenu', handleContextMenu);
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('copy', handleClipboard);
+      document.removeEventListener('cut', handleClipboard);
+      document.removeEventListener('paste', handleClipboard);
     };
   }, [stage]);
 
@@ -312,7 +337,9 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
           boxShadow: stage === 'IN_EXAM' ? 'none' : '0 25px 60px -15px rgba(0, 0, 0, 0.4)',
           overflow: 'hidden',
           border: stage === 'IN_EXAM' ? 'none' : '1px solid #e2e8f0',
-          transition: 'all 0.2s ease'
+          transition: 'all 0.2s ease',
+          userSelect: stage === 'IN_EXAM' ? 'none' : 'auto', // Disables text selection
+          WebkitUserSelect: stage === 'IN_EXAM' ? 'none' : 'auto'
         }}
       >
         {/* =========================================================================
@@ -611,38 +638,51 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
               </div>
             )}
 
-            {/* Fullscreen exited alert banner */}
+            {/* Fullscreen exited alert banner / Lock Overlay */}
             {!isFullscreen && (
               <div style={{
-                background: '#991b1b',
-                color: '#ffffff',
-                padding: '0.55rem 1.5rem',
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(15, 23, 42, 0.95)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 9999,
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                fontSize: '0.82rem',
-                fontWeight: 700,
-                borderBottom: '1px solid #7f1d1d'
+                justifyContent: 'center',
+                color: '#ffffff',
+                padding: '2rem',
+                textAlign: 'center'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <AlertTriangle size={16} color="#fca5a5" />
-                  <span>Exam Proctoring Alert: Full-screen mode is required! Exiting full-screen is recorded as a violation.</span>
-                </div>
+                <AlertTriangle size={64} color="#ef4444" style={{ marginBottom: '1.5rem' }} />
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '1rem' }}>
+                  Exam Paused: Full-Screen Required
+                </h2>
+                <p style={{ fontSize: '1.1rem', color: '#cbd5e1', marginBottom: '2rem', maxWidth: '600px', lineHeight: 1.6 }}>
+                  You have exited full-screen mode. This is recorded as a proctoring violation. 
+                  To resume your test and protect your progress, you must re-enter full-screen mode immediately. 
+                  No other actions are allowed.
+                </p>
                 <button
                   type="button"
                   onClick={requestFullscreenMode}
                   style={{
-                    background: '#ffffff',
-                    color: '#991b1b',
+                    background: '#ef4444',
+                    color: '#ffffff',
                     border: 'none',
-                    borderRadius: '6px',
-                    padding: '3px 12px',
-                    fontSize: '0.76rem',
+                    borderRadius: '8px',
+                    padding: '1rem 2rem',
+                    fontSize: '1.1rem',
                     fontWeight: 800,
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)'
                   }}
                 >
-                  Re-enter Fullscreen
+                  <Maximize2 size={20} />
+                  Re-enter Fullscreen to Resume
                 </button>
               </div>
             )}
