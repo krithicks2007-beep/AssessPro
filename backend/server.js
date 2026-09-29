@@ -347,32 +347,22 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         } catch (e) {}
       }
 
-      const isExplicitSessionStudent = userRoleOverrides.get(cleanEmail) === 'student';
-
-      // Only treat as verified student if they have completed their profile or selected student in this session
-      if (hasRealStudentProfile || isExplicitSessionStudent) {
-        return res.json({ user, profile, role: 'student' });
+      // Trust the DB-persisted UserType for student (survives serverless restarts)
+      if (hasRealStudentProfile || profile?.UserType === 'student' || userRoleOverrides.get(cleanEmail) === 'student') {
+        // Ensure the DB reflects 'student' if it somehow drifted
+        if (profile?.UserType !== 'student' && supabase && profile?.id) {
+          try { await supabase.from('users').update({ UserType: 'student' }).eq('id', profile.id); } catch (e) {}
+        }
+        return res.json({ user, profile: { ...profile, UserType: 'student' }, role: 'student' });
       }
 
-      // Check if the user explicitly chose to be a student
-      if (profile?.UserType === 'student') {
-        // If they already chose student, let them be a student
-        return res.json({ user, profile, role: 'student' });
-      }
-
-      // If user is new or has no profile: MUST prompt role verification / selection!
-      // Synchronize public.users UserType to 'unassigned' if it was auto-set by trigger
-      if (supabase && profile && profile.UserType !== 'unassigned') {
-        try {
-          await supabase.from('users').update({ UserType: 'unassigned' }).eq('id', profile.id);
-        } catch (e) {}
-      }
-
+      // User exists in DB but has not yet made a role choice (truly new/unclassified external user)
+      // Do NOT overwrite to 'unassigned' if they haven't chosen yet — just prompt them
+      // NOTE: do NOT return isDeletedOrNew:true here; that causes App.jsx to wipe all localStorage
       return res.json({
         user,
         profile: null,
-        role: 'unassigned',
-        isDeletedOrNew: true
+        role: 'unassigned'
       });
     }
 
@@ -380,7 +370,6 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
     if (!profile) {
       // PURGE ANY STALE IN-MEMORY OVERRIDES FOR THIS USER
       userRoleOverrides.delete(cleanEmail);
-      inMemoryStudentProfiles.delete(cleanEmail);
 
       // Institutional emails (@bitsathy.ac.in) auto-enroll as student
       if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
@@ -508,11 +497,13 @@ app.get('/api/auth/staff-request-status', async (req, res) => {
     if (dbUser?.UserType === 'staff')   return res.json({ role: 'staff', status: 'approved' });
     if (dbUser?.UserType === 'student') {
       if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) return res.json({ role: 'student', status: 'approved' });
-      const isExplicitStudent = userRoleOverrides.get(cleanEmail) === 'student';
+      // For external emails: trust the DB students table (reg_no = proof of completed profile)
       const { data: st } = await supabase.from('students').select('reg_no').eq('id', dbUser.id).maybeSingle();
-      if (isExplicitStudent && st?.reg_no && !st.reg_no.startsWith('GUEST-')) {
+      if (st?.reg_no && !st.reg_no.startsWith('GUEST-')) {
         return res.json({ role: 'student', status: 'approved' });
       }
+      // UserType is student but no verified profile yet — still treat as student
+      return res.json({ role: 'student', status: 'approved' });
     }
   } catch (e) {}
 
@@ -622,17 +613,34 @@ app.post('/api/student/profile', verifyAuth, async (req, res) => {
   }
 
   const cleanEmail = email.toLowerCase().trim();
+  userRoleOverrides.set(cleanEmail, 'student');
 
   let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
   let targetUserId = userRecord?.id;
 
-  if (!targetUserId && id) {
-    const { error: uErr } = await supabase.from('users').upsert({
-      id, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
+  if (!targetUserId && req.user?.id && req.user.id !== 'demo-user-id') {
+    targetUserId = req.user.id;
+  }
+  if (!targetUserId && id && id !== 'demo-user-id') {
+    targetUserId = id;
+  }
+
+  if (targetUserId) {
+    await supabase.from('users').upsert({
+      id: targetUserId,
+      name: name || cleanEmail.split('@')[0],
+      mailid: cleanEmail,
+      UserType: 'student'
     });
-    if (!uErr) targetUserId = id;
-  } else if (targetUserId) {
-    await supabase.from('users').update({ name: name || cleanEmail.split('@')[0] }).eq('id', targetUserId);
+  } else {
+    try {
+      const { data: created } = await supabase.from('users').upsert({
+        name: name || cleanEmail.split('@')[0],
+        mailid: cleanEmail,
+        UserType: 'student'
+      }).select().maybeSingle();
+      if (created?.id) targetUserId = created.id;
+    } catch (e) {}
   }
 
   if (!targetUserId) {
@@ -650,7 +658,7 @@ app.post('/api/student/profile', verifyAuth, async (req, res) => {
   });
 
   if (error) return res.status(500).json({ error: 'Failed to save student profile: ' + error.message });
-  res.status(200).json({ message: 'Profile saved successfully' });
+  res.status(200).json({ message: 'Profile saved successfully', role: 'student' });
 });
 
 
@@ -1271,16 +1279,9 @@ app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
       }
     }
 
-    // Clear from all in-memory registries & persistence files
+    // Clear from in-memory role overrides
     if (targetEmail) {
       userRoleOverrides.delete(targetEmail);
-      inMemoryStudentProfiles.delete(targetEmail);
-      inMemoryStaffRequests = inMemoryStaffRequests.filter(r => r.email.toLowerCase() !== targetEmail);
-      saveStaffRequestsToFile();
-      studentStaffAssignments.delete(targetEmail);
-      saveMappingToFile();
-      inMemorySubmissions = inMemorySubmissions.filter(s => (s.student_email || '').toLowerCase() !== targetEmail);
-      saveSubmissionsToFile();
     }
 
     res.json({ success: true, message: `User ${targetEmail || id} completely deleted from system.` });

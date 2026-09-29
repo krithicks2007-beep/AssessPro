@@ -787,17 +787,35 @@ export const api = {
 
   // 6. Admin Users
   async getAdminUsers() {
+    // 1. Try backend API route
     try {
       const res = await fetchWithTimeout(`${API_BASE}/admin/users`, {
         headers: getAuthHeaders()
       });
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data) && data.length > 0) return data;
       }
     } catch (e) {
       console.warn('Backend getAdminUsers error:', e.message);
     }
+
+    // 2. Direct Supabase fallback (works even if backend env vars are missing)
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) return data;
+        if (error) throw new Error('Supabase: ' + error.message);
+      }
+    } catch (e) {
+      console.warn('Direct Supabase getAdminUsers error:', e.message);
+      throw e; // Surface to AdminLayout so it shows an error instead of blank page
+    }
+
     return [];
   },
 

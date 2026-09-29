@@ -19,12 +19,14 @@ export default function AdminDashboard({ user, onSignOut }) {
   const [usersList, setUsersList] = useState([]);
   const [staffRequests, setStaffRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [actionMsg, setActionMsg] = useState('');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
       const data = await api.getAdminUsers();
       const safeData = Array.isArray(data) ? data : [];
@@ -39,6 +41,7 @@ export default function AdminDashboard({ user, onSignOut }) {
       setUsersList(mapped);
     } catch (err) {
       console.error('Error fetching admin users:', err);
+      setLoadError(err.message || 'Failed to load users. Check Supabase connection.');
     } finally {
       setLoading(false);
     }
@@ -210,6 +213,28 @@ export default function AdminDashboard({ user, onSignOut }) {
             }}>
               <CheckCircle size={18} />
               <span>{actionMsg}</span>
+            </div>
+          )}
+
+          {/* Load Error Banner */}
+          {loadError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fca5a5',
+              color: '#dc2626',
+              borderRadius: '12px',
+              padding: '0.85rem 1.25rem',
+              fontSize: '0.88rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
+              marginBottom: '0.5rem'
+            }}>
+              <X size={18} />
+              <span>⚠ Failed to load data: {loadError}</span>
+              <button onClick={loadUsers} style={{ marginLeft: 'auto', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', padding: '4px 12px', cursor: 'pointer', fontSize: '0.8rem' }}>Retry</button>
             </div>
           )}
 
