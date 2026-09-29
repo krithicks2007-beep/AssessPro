@@ -27,7 +27,9 @@ export default function App() {
   const [appActionError, setAppActionError] = useState('');
 
   const validateAndSetSession = useCallback(async (currentSession) => {
+    console.log('validateAndSetSession called for user:', currentSession?.user?.email);
     if (!currentSession?.user) {
+      console.log('No user in session, returning early');
       return;
     }
 
@@ -47,7 +49,9 @@ export default function App() {
     let targetRole = 'unassigned';
     let isDeletedOrNew = false;
     try {
+      console.log('Fetching user profile from backend...');
       const profileInfo = await api.getUserProfile();
+      console.log('Profile info received:', profileInfo);
       if (profileInfo) {
         if (profileInfo.role) targetRole = profileInfo.role;
         if (profileInfo.isDeletedOrNew) isDeletedOrNew = true;
@@ -71,9 +75,11 @@ export default function App() {
     }
 
     const cleanEmail = email.toLowerCase().trim();
+    console.log('Determined targetRole:', targetRole, 'isDeletedOrNew:', isDeletedOrNew);
 
     // If role is unassigned or profile is marked deleted/new:
     if (targetRole === 'unassigned' || isDeletedOrNew) {
+      console.log('Clearing local storage cache because role is unassigned or profile is new');
       localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
       localStorage.removeItem(`assesspro_role_${cleanEmail}`);
       localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
@@ -87,6 +93,7 @@ export default function App() {
       targetRole = 'admin';
     }
 
+    console.log('Setting currentRole to:', targetRole);
     setCurrentRole(targetRole);
 
     // Fetch student profile in background (never blocks or redirects)
@@ -125,6 +132,7 @@ export default function App() {
   useEffect(() => {
     // 1. Check if OAuth returned an error in URL hash (#error=...)
     if (window.location.hash && window.location.hash.includes('error=')) {
+      console.log('OAuth error detected in hash:', window.location.hash);
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const errorDesc = hashParams.get('error_description') || hashParams.get('error') || 'Authentication failed';
       setTimeout(() => setAuthError(`Sign-in rejected: ${decodeURIComponent(errorDesc)}`), 0);
@@ -133,6 +141,7 @@ export default function App() {
 
     // 2. Check if OAuth returned an error in query string (?error=...)
     if (window.location.search && window.location.search.includes('error=')) {
+      console.log('OAuth error detected in search query:', window.location.search);
       const searchParams = new URLSearchParams(window.location.search);
       const errorDesc = searchParams.get('error_description') || searchParams.get('error') || 'OAuth state expired or invalid';
       const cleanDesc = decodeURIComponent(errorDesc).replace(/\+/g, ' ');
@@ -147,8 +156,10 @@ export default function App() {
 
     // Subscribe to auth state updates
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('onAuthStateChange fired with event:', event, 'session user:', session?.user?.email);
       if (!isMounted) return;
       if (event === 'SIGNED_OUT') {
+        console.log('SIGNED_OUT event received, clearing session');
         setSession(null);
         setCurrentUser(null);
         setCurrentRole(null);
