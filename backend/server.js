@@ -9,7 +9,18 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || 'bitsathy.ac.in').toLowerCase().trim();
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: false
+}));
+// Explicitly handle OPTIONS preflight for all routes (prevents 405 on DELETE/PUT/PATCH)
+app.options('*', cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
 app.use(express.json());
 
 
@@ -297,16 +308,27 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
       return res.json({ user, profile: adminProf, role: 'admin' });
     }
 
-    // 2. Query Supabase users table
+    // 2. Query Supabase users table — query by email first (most reliable unique key)
     let profile = null;
     if (supabase) {
       try {
-        const { data } = await supabase
+        // Try by email first
+        const { data: byEmail } = await supabase
           .from('users')
           .select('*')
-          .or(`id.eq.${user.id},mailid.eq.${cleanEmail}`)
+          .eq('mailid', cleanEmail)
           .maybeSingle();
-        profile = data;
+        if (byEmail) {
+          profile = byEmail;
+        } else if (user.id) {
+          // Fall back to UUID if email lookup yields nothing
+          const { data: byId } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
+          profile = byId || null;
+        }
       } catch (err) {
         console.warn('Profile read warning:', err.message);
       }
