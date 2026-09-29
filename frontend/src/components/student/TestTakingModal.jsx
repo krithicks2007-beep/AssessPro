@@ -140,8 +140,9 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     };
 
     // 2. Persist to backend FIRST — do not show success until confirmed
+    let savedSubmission;
     try {
-      await api.submitTest(test.id, {
+      savedSubmission = await api.submitTest(test.id, {
         ...submissionPayload,
         studentName: submissionPayload.student_name,
         studentEmail: submissionPayload.student_email,
@@ -157,12 +158,13 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     }
 
     // 3. Only after server confirms — transition to COMPLETED
-    setSubmissionResult(submissionPayload);
+    const authoritativeResult = savedSubmission || submissionPayload;
+    setSubmissionResult(authoritativeResult);
     setStage('COMPLETED');
     setSubmitting(false);
 
     if (onTestCompleted) {
-      onTestCompleted(submissionPayload);
+      onTestCompleted(authoritativeResult);
     }
   };
 

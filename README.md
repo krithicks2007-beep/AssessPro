@@ -82,3 +82,14 @@ npm run dev
 | `POST` | `/api/tests` | Create & deploy new assessment or task |
 | `GET` | `/api/admin/users` | List institutional users for Admin Console |
 | `PUT` | `/api/admin/users/:id/role` | Update user role (`student`, `staff`, `admin`) |
+
+## Vercel Deployment
+
+Deploy this repository as two Vercel projects:
+
+1. Create a backend project with root directory `backend`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_DOMAIN`, and `ALLOWED_ORIGINS` (the deployed frontend URL plus local development URLs). Use `backend/vercel.json` and verify `/api/health` on the deployed backend URL.
+2. Create a frontend project with root directory `frontend`. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ALLOWED_DOMAIN`, and `VITE_API_URL` to the backend deployment URL. Use `frontend/vercel.json`.
+3. Apply `backend/schema.sql`, the required additive migrations, and `backend/fix_rls.sql` in Supabase. Never use the old allow-all policies.
+4. Configure the Supabase site URL, Google OAuth callback, and allowed redirect URLs with the deployed frontend URL.
+
+The root `vercel.json` remains for a combined deployment option, but the two-project setup is easier to operate and makes the frontend/backend environment boundaries explicit.

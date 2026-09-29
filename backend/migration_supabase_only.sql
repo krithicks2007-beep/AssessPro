@@ -36,6 +36,6 @@ DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies WHERE tablename = 'staff_requests' AND policyname = 'Allow all on staff_requests'
   ) THEN
-    CREATE POLICY "Allow all on staff_requests" ON public.staff_requests FOR ALL USING (true) WITH CHECK (true);
+    -- Staff-request policies are installed by fix_rls.sql.
   END IF;
 END $$;

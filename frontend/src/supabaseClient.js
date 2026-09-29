@@ -56,7 +56,8 @@ export const signInWithGoogleBitsathy = async (supabase) => {
       redirectTo: window.location.origin,
       queryParams: {
         prompt: 'select_account',
-        access_type: 'offline'
+        access_type: 'offline',
+        hd: import.meta.env.VITE_ALLOWED_DOMAIN || 'bitsathy.ac.in'
       }
     }
   });

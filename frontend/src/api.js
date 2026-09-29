@@ -5,7 +5,7 @@ import { getSupabaseClient } from './supabaseClient';
  * Communicates with the Express Backend (http://localhost:5000 via Vite proxy '/api')
  */
 
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 
 const safeJson = async (res) => {
   try {
@@ -508,27 +508,8 @@ export const api = {
       }
     }
 
-    // 3. Resilient Fallback: Ensure test object is created locally
     if (!created) {
-      created = {
-        id: 'test-' + Date.now(),
-        test_number: parseInt(testData.testNumber) || 1,
-        title: (testData.title || 'Assessment Test').trim(),
-        group_id: testData.groupId || '48782e28-c67e-41c0-ad8f-5cf522722ee0',
-        duration_minutes: parseInt(testData.durationMinutes) || 45,
-        test_type: testData.testType || 'test',
-        status: testData.status || 'published',
-        allow_latecomers: testData.allowLatecomers !== false,
-        start_time: testData.startTime || new Date().toISOString(),
-        end_time: testData.endTime || new Date(Date.now() + 86400000).toISOString(),
-        questions: testData.questions || [],
-        total_questions: (testData.questions || []).length,
-        max_score: parseInt(testData.maxScore) || 100,
-        created_at: new Date().toISOString(),
-        is_demo: false,
-        groups: { name: 'Core Subjects', group_number: 1, color: '#1d72fe' },
-        assigned_students: Array.isArray(testData.assignedStudents) ? testData.assignedStudents : []
-      };
+      throw new Error('Assessment could not be saved. Please try again.');
     }
 
     // Persist in localStorage so it stays even on page refresh
@@ -616,51 +597,11 @@ export const api = {
         }
       }
     } catch (err) {
-      console.warn('Backend submitTest note (proceeding with local sync):', err.message);
+      throw new Error(`Submission could not be saved: ${err.message}`);
     }
 
-    // Direct Supabase or local calculation fallback
     if (!submitted) {
-      const studentEmail = submissionData.studentEmail || submissionData.student_email || 'student@bitsathy.ac.in';
-      const studentName = submissionData.studentName || submissionData.student_name || 'Student';
-      
-      const score = submissionData.score !== undefined ? submissionData.score : 0;
-      const maxScore = submissionData.max_score !== undefined ? submissionData.max_score : 100;
-      const percentage = submissionData.percentage !== undefined ? submissionData.percentage : Math.round((score / (maxScore || 1)) * 100);
-      const totalQuestions = submissionData.total_questions || 10;
-      const correctCount = submissionData.correct_count || 0;
-
-      submitted = {
-        id: 'sub-' + Date.now(),
-        test_id: testId,
-        student_email: studentEmail,
-        student_name: studentName,
-        score: score,
-        max_score: maxScore,
-        percentage: percentage,
-        correct_count: correctCount,
-        total_questions: totalQuestions,
-        tab_switch_count: submissionData.tabSwitchCount || 0,
-        time_taken_seconds: submissionData.timeTakenSeconds || 0,
-        status: 'completed',
-        submitted_at: new Date().toISOString()
-      };
-
-      // Try inserting into Supabase
-      try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
-          if (isValidUUID(testId)) {
-            await supabase.from('test_submissions').insert([{
-              test_id: testId,
-              score: score,
-              max_score: maxScore,
-              status: 'completed'
-            }]);
-          }
-        }
-      } catch (e) {}
+      throw new Error('Submission was not confirmed by the server');
     }
 
     // Persist in localStorage for student & faculty view
@@ -767,22 +708,14 @@ export const api = {
   },
 
   async saveStudentProfile(profileData) {
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/student/profile`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(profileData)
-      });
-      const data = await safeJson(res);
-      if (!res.ok) {
-        console.warn('Backend returned non-200 for profile save:', res.status, data);
-        return { success: false, fallback: true, profile: profileData };
-      }
-      return data;
-    } catch (err) {
-      console.warn('Backend saveStudentProfile connection warning:', err.message);
-      return { success: true, fallback: true, profile: profileData };
-    }
+    const res = await fetchWithTimeout(`${API_BASE}/student/profile`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(profileData)
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || `Profile save failed (${res.status})`);
+    return data;
   },
 
   // 6. Admin Users
@@ -835,61 +768,21 @@ export const api = {
 
   // 7. Role Selection & Staff Requests Workflow
   async selectRoleChoice(email, name, role) {
-    // 1. Try backend API first
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/auth/role-choice`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ email, name, role })
-      });
-      const data = await safeJson(res);
-      if (res.ok) return data;
-    } catch (e) {
-      console.warn('Backend selectRoleChoice note:', e.message);
-    }
-
-    // 2. Direct Supabase fallback — ALWAYS writes to DB even if backend is down
-    try {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        if (role === 'student') {
-          await supabase.from('users').update({ UserType: 'student' }).eq('mailid', email.toLowerCase());
-          localStorage.setItem(`assesspro_role_${email}`, 'student');
-          return { role: 'student', status: 'approved' };
-        } else if (role === 'staff') {
-          // Delete any stale request, then insert fresh
-          await supabase.from('staff_requests').delete().eq('email', email.toLowerCase());
-          const { error } = await supabase.from('staff_requests').insert({
-            email: email.toLowerCase(),
-            name: name,
-            status: 'pending'
-          });
-          if (error) console.warn('Direct staff_requests insert error:', error.message);
-          localStorage.setItem(`assesspro_role_${email}`, 'pending_staff');
-          return { role: 'pending_staff', status: 'pending', message: 'Staff request submitted to admin' };
-        }
-      }
-    } catch (sbErr) {
-      console.warn('Direct Supabase selectRoleChoice error:', sbErr.message);
-    }
-
-    // 3. Final localStorage-only fallback (offline/no Supabase)
-    if (role === 'student') {
-      localStorage.setItem(`assesspro_role_${email}`, 'student');
-      return { role: 'student', status: 'approved' };
-    } else {
-      const reqs = JSON.parse(localStorage.getItem('assesspro_staff_requests') || '[]');
-      const newReq = { id: 'req-' + Date.now(), email, name, status: 'pending', created_at: new Date().toISOString() };
-      reqs.unshift(newReq);
-      localStorage.setItem('assesspro_staff_requests', JSON.stringify(reqs));
-      localStorage.setItem(`assesspro_role_${email}`, 'pending_staff');
-      return { role: 'pending_staff', status: 'pending', message: 'Staff request submitted to admin' };
-    }
+    const res = await fetchWithTimeout(`${API_BASE}/auth/role-choice`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email, name, role })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Role selection failed');
+    return data;
   },
 
   async checkStaffRequestStatus(email) {
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/auth/staff-request-status?email=${encodeURIComponent(email)}`);
+      const res = await fetchWithTimeout(`${API_BASE}/auth/staff-request-status?email=${encodeURIComponent(email)}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (data) return data;
@@ -1010,7 +903,7 @@ export const api = {
   // 8. Students Registry & Staff Mapping
   async getAllStudents() {
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/students`);
+      const res = await fetchWithTimeout(`${API_BASE}/students`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await safeJson(res);
         if (Array.isArray(data)) return data;
@@ -1089,7 +982,9 @@ export const api = {
     if (!email) return { assigned_staff_name: null, assigned_staff_id: null, staffName: null, staffId: null };
     const cleanEmail = email.toLowerCase().trim();
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/student/assigned-staff?email=${encodeURIComponent(cleanEmail)}`);
+      const res = await fetchWithTimeout(`${API_BASE}/student/assigned-staff?email=${encodeURIComponent(cleanEmail)}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (data && (data.assigned_staff_name || data.staffName)) {
@@ -1114,7 +1009,9 @@ export const api = {
     if (!email) return null;
     const cleanEmail = email.toLowerCase().trim();
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/staff/profile?email=${encodeURIComponent(cleanEmail)}`);
+      const res = await fetchWithTimeout(`${API_BASE}/staff/profile?email=${encodeURIComponent(cleanEmail)}`, {
+        headers: getAuthHeaders()
+      });
       if (res.ok) {
         const data = await safeJson(res);
         if (data && (data.department || data.staff_code || data.name)) {

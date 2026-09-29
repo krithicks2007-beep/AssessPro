@@ -25,9 +25,12 @@ const DESIGNATIONS = [
   'Visiting Faculty / Lecturer'
 ];
 
-export default function StaffOnboardingModal({ isOpen, onClose, user, staffProfile, onProfileSaved }) {
-  if (!isOpen) return null;
+export default function StaffOnboardingModal(props) {
+  if (!props.isOpen) return null;
+  return <StaffOnboardingModalInner {...props} />;
+}
 
+function StaffOnboardingModalInner({ onClose, user, staffProfile, onProfileSaved }) {
   const email = user?.email || '';
   const isBitDomain = email.toLowerCase().endsWith('@bitsathy.ac.in');
 
@@ -42,7 +45,7 @@ export default function StaffOnboardingModal({ isOpen, onClose, user, staffProfi
     staffProfile?.designation || 'Assistant Professor'
   );
   const [staffCode, setStaffCode] = useState(
-    staffProfile?.staff_code || staffProfile?.staffCode || `FAC-${(user?.id || Date.now().toString()).slice(-4).toUpperCase()}`
+    staffProfile?.staff_code || staffProfile?.staffCode || `FAC-${(user?.id || 'NEW').slice(-4).toUpperCase()}`
   );
   const [institution, setInstitution] = useState(
     staffProfile?.institution || (isBitDomain ? 'Bannari Amman Institute of Technology' : '')

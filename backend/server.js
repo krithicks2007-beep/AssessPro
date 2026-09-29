@@ -8,28 +8,23 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || 'bitsathy.ac.in').toLowerCase().trim();
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173')
+  .split(',').map(origin => origin.trim()).filter(Boolean);
 
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  credentials: false
-}));
-// Explicitly handle OPTIONS preflight for all routes (prevents 405 on DELETE/PUT/PATCH)
-app.options('*', cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json());
 
 
-// In-memory registries (role overrides only — no file persistence needed)
-const userRoleOverrides = new Map();
-
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 let supabase = null;
 if (supabaseUrl && supabaseKey) {
@@ -66,15 +61,7 @@ const resolveRoleFromEmail = (email = '') => {
   if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
     return 'admin';
   }
-  if (cleanEmail.startsWith('admin') || cleanEmail.includes('.admin@') || cleanEmail.startsWith('dean')) {
-    return 'admin';
-  }
-
   // 1. Check explicit registered role override
-  if (userRoleOverrides.has(cleanEmail)) {
-    return userRoleOverrides.get(cleanEmail);
-  }
-
   // 2. Official emails (matching ALLOWED_DOMAIN): pattern-based detection
   if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
     return 'student';
@@ -85,34 +72,50 @@ const resolveRoleFromEmail = (email = '') => {
   return 'unassigned';
 };
 
-// Authentication Middleware with Local & Demo Resilience
+// Authentication must fail closed. Demo identities are never valid in production.
 const verifyAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
-    return next();
+    return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const token = authHeader.split(' ')[1];
-
-  if (token === 'mock-jwt-token-demo' || token.startsWith('mock-') || !supabase) {
-    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
-    return next();
-  }
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  if (!supabase) return res.status(503).json({ error: 'Authentication service is not configured' });
 
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) {
-      req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
-      return next();
+      return res.status(401).json({ error: 'Invalid or expired session' });
     }
 
     req.user = user;
-    next();
+    const { data: profile } = await supabase
+      .from('users')
+      .select('UserType')
+      .eq('id', user.id)
+      .maybeSingle();
+    req.userRole = profile?.UserType || resolveRoleFromEmail(user.email);
+    return next();
   } catch (err) {
-    req.user = { id: 'demo-user-id', email: 'demo@bitsathy.ac.in' };
-    next();
+    return res.status(401).json({ error: 'Unable to verify session' });
   }
+};
+
+const requireRoles = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.userRole)) {
+    return res.status(403).json({ error: 'You do not have permission to perform this action' });
+  }
+  return next();
+};
+
+const requireOwnEmail = (req, res, next) => {
+  const requestedEmail = String(req.body?.email || req.query?.email || '').toLowerCase().trim();
+  const authenticatedEmail = String(req.user?.email || '').toLowerCase().trim();
+  if (requestedEmail && requestedEmail !== authenticatedEmail && req.userRole !== 'admin') {
+    return res.status(403).json({ error: 'You can only access your own account' });
+  }
+  return next();
 };
 
 // -------------------------------------------------------------
@@ -185,7 +188,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Students list from Supabase
-app.get('/api/students', async (req, res) => {
+app.get('/api/students', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const { data: usersData, error } = await supabase
@@ -225,7 +228,7 @@ app.get('/api/students', async (req, res) => {
 
 
 // Staff assigns students to themselves
-app.post('/api/staff/assign-students', verifyAuth, async (req, res) => {
+app.post('/api/staff/assign-students', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { staffId, staffName, studentEmails } = req.body;
   if (!staffName || !Array.isArray(studentEmails)) {
@@ -256,7 +259,7 @@ app.post('/api/staff/assign-students', verifyAuth, async (req, res) => {
 
 
 // Student checks their assigned staff
-app.get('/api/student/assigned-staff', async (req, res) => {
+app.get('/api/student/assigned-staff', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const email = (req.query.email || '').toLowerCase().trim();
 
@@ -369,13 +372,23 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         } catch (e) {}
       }
 
-      // Trust the DB-persisted UserType for student (survives serverless restarts)
-      if (hasRealStudentProfile || profile?.UserType === 'student' || userRoleOverrides.get(cleanEmail) === 'student') {
-        // Ensure the DB reflects 'student' if it somehow drifted
-        if (profile?.UserType !== 'student' && supabase && profile?.id) {
-          try { await supabase.from('users').update({ UserType: 'student' }).eq('id', profile.id); } catch (e) {}
-        }
-        return res.json({ user, profile: { ...profile, UserType: 'student' }, role: 'student' });
+      // Only treat as verified student if they have completed their profile or selected student in this session
+      if (hasRealStudentProfile) {
+        return res.json({ user, profile, role: 'student' });
+      }
+
+      // Check if the user explicitly chose to be a student
+      if (profile?.UserType === 'student') {
+        // If they already chose student, let them be a student
+        return res.json({ user, profile, role: 'student' });
+      }
+
+      // If user is new or has no profile: MUST prompt role verification / selection!
+      // Synchronize public.users UserType to 'unassigned' if it was auto-set by trigger
+      if (supabase && profile && profile.UserType !== 'unassigned') {
+        try {
+          await supabase.from('users').update({ UserType: 'unassigned' }).eq('id', profile.id);
+        } catch (e) {}
       }
 
       // User exists in DB but has not yet made a role choice (truly new/unclassified external user)
@@ -391,7 +404,6 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
     // 3. User is NOT found in users table (e.g. was deleted or new sign-up)
     if (!profile) {
       // PURGE ANY STALE IN-MEMORY OVERRIDES FOR THIS USER
-      userRoleOverrides.delete(cleanEmail);
 
       // Institutional emails (@bitsathy.ac.in) auto-enroll as student
       if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
@@ -460,7 +472,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
 app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
   try {
     const user = req.user;
-    const cleanEmail = (req.body.email || user.email || '').toLowerCase().trim();
+    const cleanEmail = (user.email || '').toLowerCase().trim();
     const name = req.body.name || user.user_metadata?.full_name || cleanEmail.split('@')[0];
     const role = req.body.role; // 'student' | 'staff'
 
@@ -469,7 +481,7 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
     }
 
     if (role === 'student') {
-      const userId = user.id && user.id !== 'demo-user-id' ? user.id : (req.body.id || null);
+      const userId = user.id;
       if (supabase) {
         try {
           // Remove any pending staff request for this email
@@ -477,7 +489,6 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
           if (userId) await supabase.from('users').upsert({ id: userId, name, mailid: cleanEmail, UserType: 'student' });
         } catch (e) {}
       }
-      userRoleOverrides.set(cleanEmail, 'student');
       return res.json({ success: true, role: 'student', status: 'approved' });
     } else if (role === 'staff') {
       if (supabase) {
@@ -498,7 +509,6 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
           console.warn('staff_requests upsert error:', dbErr.message);
         }
       }
-      userRoleOverrides.set(cleanEmail, 'pending_staff');
       return res.json({
         success: true, role: 'pending_staff', status: 'pending',
         message: 'Staff request submitted to administrator for approval.'
@@ -513,7 +523,7 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
 });
 
 // Staff Request Status (polling from RoleSelectionModal)
-app.get('/api/auth/staff-request-status', async (req, res) => {
+app.get('/api/auth/staff-request-status', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const cleanEmail = (req.query.email || '').toLowerCase().trim();
   if (!cleanEmail) return res.status(400).json({ error: 'Email parameter required' });
@@ -532,7 +542,7 @@ app.get('/api/auth/staff-request-status', async (req, res) => {
     if (dbUser?.UserType === 'staff')   return res.json({ role: 'staff', status: 'approved' });
     if (dbUser?.UserType === 'student') {
       if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) return res.json({ role: 'student', status: 'approved' });
-      // For external emails: trust the DB students table (reg_no = proof of completed profile)
+
       const { data: st } = await supabase.from('students').select('reg_no').eq('id', dbUser.id).maybeSingle();
       if (st?.reg_no && !st.reg_no.startsWith('GUEST-')) {
         return res.json({ role: 'student', status: 'approved' });
@@ -547,7 +557,7 @@ app.get('/api/auth/staff-request-status', async (req, res) => {
 
 
 // Admin: Staff Requests List & Actions
-app.get('/api/admin/staff-requests', verifyAuth, async (req, res) => {
+app.get('/api/admin/staff-requests', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     // Try ordering by created_at; fall back without order if column missing
@@ -565,7 +575,7 @@ app.get('/api/admin/staff-requests', verifyAuth, async (req, res) => {
   }
 });
 
-app.post('/api/admin/staff-requests/:id/approve', verifyAuth, async (req, res) => {
+app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
 
@@ -575,8 +585,6 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, async (req, res) =
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
   await supabase.from('staff_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
-  userRoleOverrides.set(cleanEmail, 'staff');
-
   try {
     let userId = null;
     try {
@@ -597,7 +605,7 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, async (req, res) =
 });
 
 
-app.post('/api/admin/staff-requests/:id/reject', verifyAuth, async (req, res) => {
+app.post('/api/admin/staff-requests/:id/reject', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
 
@@ -607,8 +615,6 @@ app.post('/api/admin/staff-requests/:id/reject', verifyAuth, async (req, res) =>
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
   await supabase.from('staff_requests').update({ status: 'rejected', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
-  userRoleOverrides.delete(cleanEmail);
-
   try { await supabase.from('users').update({ UserType: 'unassigned' }).eq('mailid', cleanEmail); } catch (e) {}
 
   res.json({ success: true, message: `Staff request rejected for ${targetReq.email}` });
@@ -616,7 +622,7 @@ app.post('/api/admin/staff-requests/:id/reject', verifyAuth, async (req, res) =>
 
 
 // Student Profile Endpoints
-app.get('/api/student/profile', async (req, res) => {
+app.get('/api/student/profile', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const email = (req.query.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email parameter required' });
@@ -647,7 +653,7 @@ app.get('/api/student/profile', async (req, res) => {
 });
 
 
-app.post('/api/student/profile', verifyAuth, async (req, res) => {
+app.post('/api/student/profile', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id, email, name, reg_no, department, year, section, dob, phone } = req.body;
   if (!email || !reg_no) {
@@ -658,21 +664,11 @@ app.post('/api/student/profile', verifyAuth, async (req, res) => {
   userRoleOverrides.set(cleanEmail, 'student');
 
   let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
-  let targetUserId = userRecord?.id;
+  let targetUserId = userRecord?.id || req.user.id;
 
-  if (!targetUserId && req.user?.id && req.user.id !== 'demo-user-id') {
-    targetUserId = req.user.id;
-  }
-  if (!targetUserId && id && id !== 'demo-user-id') {
-    targetUserId = id;
-  }
-
-  if (targetUserId) {
-    await supabase.from('users').upsert({
-      id: targetUserId,
-      name: name || cleanEmail.split('@')[0],
-      mailid: cleanEmail,
-      UserType: 'student'
+  if (!targetUserId && id === req.user.id) {
+    const { error: uErr } = await supabase.from('users').upsert({
+      id, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
     });
   } else {
     try {
@@ -709,7 +705,7 @@ app.post('/api/student/profile', verifyAuth, async (req, res) => {
 // Supabase-only — no file I/O
 // -------------------------------------------------------------
 
-app.get('/api/staff/profile', async (req, res) => {
+app.get('/api/staff/profile', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const email = (req.query.email || '').toLowerCase().trim();
   if (!email) return res.status(400).json({ error: 'Email parameter required' });
@@ -733,7 +729,7 @@ app.get('/api/staff/profile', async (req, res) => {
   return res.json(null);
 });
 
-app.post('/api/staff/profile', verifyAuth, async (req, res) => {
+app.post('/api/staff/profile', verifyAuth, requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id, email, name, staff_code, department, designation, phone, institution, specialization, office_location } = req.body;
   if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -742,7 +738,7 @@ app.post('/api/staff/profile', verifyAuth, async (req, res) => {
   const sc = staff_code ? staff_code.trim().toUpperCase() : `FAC-${Date.now().toString().slice(-4)}`;
 
   let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
-  let targetUserId = userRecord?.id || (id && id !== 'demo-user-id' ? id : null);
+  let targetUserId = userRecord?.id || req.user.id;
 
   if (!targetUserId && id) {
     const { error: uErr } = await supabase.from('users').upsert({
@@ -772,7 +768,7 @@ app.post('/api/staff/profile', verifyAuth, async (req, res) => {
 // -------------------------------------------------------------
 // 4. GROUPS CRUD ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/groups', async (req, res) => {
+app.get('/api/groups', verifyAuth, async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -805,7 +801,7 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
-app.post('/api/groups', verifyAuth, async (req, res) => {
+app.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -855,7 +851,7 @@ app.post('/api/groups', verifyAuth, async (req, res) => {
   }
 });
 
-app.put('/api/groups/:id', verifyAuth, async (req, res) => {
+app.put('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -886,7 +882,7 @@ app.put('/api/groups/:id', verifyAuth, async (req, res) => {
   }
 });
 
-app.delete('/api/groups/:id', verifyAuth, async (req, res) => {
+app.delete('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -905,7 +901,7 @@ app.delete('/api/groups/:id', verifyAuth, async (req, res) => {
 // 5. TESTS & ASSESSMENTS ENDPOINTS
 // Supabase-only storage — no file I/O (required for Vercel serverless)
 // -------------------------------------------------------------
-app.get('/api/tests', async (req, res) => {
+app.get('/api/tests', verifyAuth, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const studentEmail = (req.query.student_email || '').toLowerCase().trim();
@@ -920,10 +916,11 @@ app.get('/api/tests', async (req, res) => {
     if (error) throw error;
     if (!Array.isArray(data)) return res.json([]);
 
+    const canSeeAnswers = ['staff', 'admin'].includes(req.userRole);
     let list = data.map(t => ({
       ...t,
       assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
-      questions: Array.isArray(t.questions) ? t.questions : [],
+      questions: Array.isArray(t.questions) ? t.questions.map(q => canSeeAnswers ? q : (({ correct_index, ...safeQuestion }) => safeQuestion)(q)) : [],
       total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
       uploadedFileName: t.uploaded_file_name || '',
       start_time: t.start_time || t.scheduled_date,
@@ -953,7 +950,7 @@ app.get('/api/tests', async (req, res) => {
 
 
 // Single test by ID
-app.get('/api/tests/:id', async (req, res) => {
+app.get('/api/tests/:id', verifyAuth, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
   try {
@@ -966,9 +963,10 @@ app.get('/api/tests/:id', async (req, res) => {
     if (error) throw error;
     if (!data) return res.status(404).json({ error: 'Test not found', id });
 
+    const canSeeAnswers = ['staff', 'admin'].includes(req.userRole);
     return res.json({
       ...data,
-      questions: Array.isArray(data.questions) ? data.questions : [],
+      questions: Array.isArray(data.questions) ? data.questions.map(q => canSeeAnswers ? q : (({ correct_index, ...safeQuestion }) => safeQuestion)(q)) : [],
       total_questions: Array.isArray(data.questions) ? data.questions.length : (data.total_questions || 0),
       assigned_students: Array.isArray(data.assigned_students) ? data.assigned_students : [],
       start_time: data.start_time || data.scheduled_date,
@@ -981,7 +979,7 @@ app.get('/api/tests/:id', async (req, res) => {
 
 
 // Create new test
-app.post('/api/tests', verifyAuth, async (req, res) => {
+app.post('/api/tests', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const {
@@ -1047,7 +1045,7 @@ app.post('/api/tests', verifyAuth, async (req, res) => {
 
 
 // Update test
-app.put('/api/tests/:id', verifyAuth, async (req, res) => {
+app.put('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const { id } = req.params;
@@ -1088,7 +1086,7 @@ app.put('/api/tests/:id', verifyAuth, async (req, res) => {
 
 
 // Delete test
-app.delete('/api/tests/:id', verifyAuth, async (req, res) => {
+app.delete('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
   const keepData = req.query.keepData === 'true' || req.body?.keepData === true;
@@ -1106,61 +1104,61 @@ app.delete('/api/tests/:id', verifyAuth, async (req, res) => {
 
 
 // Submit a test
-app.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
+app.post('/api/tests/:id/submit', verifyAuth, requireRoles('student'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
-  const {
-    studentName, studentEmail, answers = {},
-    tabSwitchCount = 0, timeTakenSeconds = 0,
-    score: clientScore, percentage: clientPercentage,
-    correct_count: clientCorrectCount, total_questions: clientTotalQuestions,
-    max_score: clientMaxScore
-  } = req.body;
+  const { answers = {}, tabSwitchCount = 0, timeTakenSeconds = 0 } = req.body;
+  const cleanEmail = String(req.user.email || '').toLowerCase().trim();
+  if (!cleanEmail) return res.status(400).json({ error: 'Authenticated student email is required' });
 
-  if (!studentEmail) return res.status(400).json({ error: 'Student email is required' });
-
-  // Fetch test from Supabase to grade server-side (authoritative)
-  let questions = [];
-  let maxScore = clientMaxScore || 100;
+  let testRow;
   try {
-    const { data: testRow } = await supabase.from('tests').select('questions, max_score').eq('id', id).maybeSingle();
-    if (testRow) {
-      questions = Array.isArray(testRow.questions) ? testRow.questions : [];
-      maxScore = testRow.max_score || maxScore;
-    }
-  } catch (_) {}
-
-  const totalQuestions = clientTotalQuestions !== undefined ? clientTotalQuestions : questions.length;
-  let score = clientScore !== undefined ? clientScore : 0;
-  let correctCount = clientCorrectCount !== undefined ? clientCorrectCount : 0;
-
-  if (clientScore === undefined && questions.length > 0) {
-    score = 0; correctCount = 0;
-    const pointsPerQ = totalQuestions > 0 ? maxScore / totalQuestions : 10;
-    questions.forEach((q, idx) => {
-      const choice = answers[q.id] !== undefined ? answers[q.id] : answers[idx];
-      if (choice !== undefined && Number(choice) === Number(q.correct_index)) {
-        correctCount++;
-        score += (q.marks || pointsPerQ);
-      }
-    });
-    score = Math.min(maxScore, Math.round(score));
+    const result = await supabase
+      .from('tests')
+      .select('id, questions, max_score, start_time, end_time, allow_latecomers, assigned_students')
+      .eq('id', id)
+      .maybeSingle();
+    if (result.error) throw result.error;
+    testRow = result.data;
+  } catch (_) {
+    return res.status(500).json({ error: 'Failed to load assessment' });
   }
-  const percentage = Math.min(100, Math.round((score / maxScore) * 100));
 
-  const cleanEmail = (studentEmail || '').toLowerCase().trim();
+  if (!testRow) return res.status(404).json({ error: 'Assessment not found' });
+  const now = Date.now();
+  const start = testRow.start_time ? new Date(testRow.start_time).getTime() : null;
+  const end = testRow.end_time ? new Date(testRow.end_time).getTime() : null;
+  if (start && now < start) return res.status(400).json({ error: 'Assessment has not started' });
+  if (end && now > end && testRow.allow_latecomers === false) return res.status(400).json({ error: 'Assessment is closed' });
 
-  // Upsert to Supabase (replace previous submission for same student+test)
-  let studentDbId = null;
-  try {
-    const { data: u } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
-    if (u?.id) studentDbId = u.id;
-  } catch (_) {}
+  const assigned = Array.isArray(testRow.assigned_students) ? testRow.assigned_students : [];
+  const assignedEmails = assigned
+    .map(item => String(typeof item === 'string' ? item : item?.email || '').toLowerCase().trim())
+    .filter(Boolean);
+  if (assignedEmails.length > 0 && !assignedEmails.includes(cleanEmail)) {
+    return res.status(403).json({ error: 'You are not assigned to this assessment' });
+  }
+
+  const questions = Array.isArray(testRow.questions) ? testRow.questions : [];
+  const maxScore = Number(testRow.max_score) || 100;
+  const totalQuestions = questions.length;
+  const pointsPerQ = totalQuestions > 0 ? maxScore / totalQuestions : 0;
+  let score = 0;
+  let correctCount = 0;
+  questions.forEach((q, idx) => {
+    const choice = answers[q.id] !== undefined ? answers[q.id] : answers[idx];
+    if (choice !== undefined && Number(choice) === Number(q.correct_index)) {
+      correctCount++;
+      score += Number(q.marks) || pointsPerQ;
+    }
+  });
+  score = Math.min(maxScore, Math.round(score));
+  const percentage = maxScore > 0 ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
 
   const subPayload = {
     test_id: id,
-    student_id: studentDbId,
-    student_name: studentName || 'Student',
+    student_id: req.user.id,
+    student_name: req.user.user_metadata?.full_name || cleanEmail.split('@')[0] || 'Student',
     student_email: cleanEmail,
     score, max_score: maxScore, answers,
     tab_switch_count: parseInt(tabSwitchCount) || 0,
@@ -1170,14 +1168,10 @@ app.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
     status: 'completed'
   };
 
-  // Delete any previous submission for the same student+test, then insert fresh
-  try {
-    await supabase.from('test_submissions').delete()
-      .eq('test_id', id).eq('student_email', cleanEmail);
-  } catch (_) {}
-
   const { data: inserted, error: subErr } = await supabase
-    .from('test_submissions').insert([subPayload]).select().maybeSingle();
+    .from('test_submissions')
+    .upsert(subPayload, { onConflict: 'test_id,student_email' })
+    .select().maybeSingle();
 
   if (subErr) {
     console.error('Submission insert error:', subErr.message);
@@ -1188,7 +1182,7 @@ app.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
 });
 
 // All submissions for a test (staff view)
-app.get('/api/tests/:id/submissions', async (req, res) => {
+app.get('/api/tests/:id/submissions', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
   try {
@@ -1211,7 +1205,7 @@ app.get('/api/tests/:id/submissions', async (req, res) => {
 });
 
 // All submissions for a student (student view)
-app.get('/api/student/submissions', async (req, res) => {
+app.get('/api/student/submissions', verifyAuth, requireRoles('student'), requireOwnEmail, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { email } = req.query;
   try {
@@ -1229,7 +1223,7 @@ app.get('/api/student/submissions', async (req, res) => {
 // -------------------------------------------------------------
 // 6. ADMIN & USER MANAGEMENT ENDPOINTS
 // -------------------------------------------------------------
-app.get('/api/admin/users', verifyAuth, async (req, res) => {
+app.get('/api/admin/users', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
     const { data, error } = await supabase
@@ -1243,7 +1237,7 @@ app.get('/api/admin/users', verifyAuth, async (req, res) => {
   }
 });
 
-app.put('/api/admin/users/:id/role', verifyAuth, async (req, res) => {
+app.put('/api/admin/users/:id/role', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) {
     return res.status(503).json({ error: 'Database client not connected' });
   }
@@ -1269,9 +1263,13 @@ app.put('/api/admin/users/:id/role', verifyAuth, async (req, res) => {
   }
 });
 
+<<<<<<< HEAD
 app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
 
+=======
+app.delete('/api/admin/users/:id', verifyAuth, requireRoles('admin'), async (req, res) => {
+>>>>>>> b9eca3a (fixed auth)
   const { id } = req.params;
   const emailQuery = (req.query.email || '').toLowerCase().trim();
 
@@ -1306,8 +1304,11 @@ app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
 
     // Also delete by email in case id differs
     if (targetEmail) {
+<<<<<<< HEAD
       await supabase.from('users').delete().eq('mailid', targetEmail);
       await supabase.from('staff_requests').delete().eq('email', targetEmail);
+=======
+>>>>>>> b9eca3a (fixed auth)
     }
 
     // 2. Try auth.admin.deleteUser — only works with SERVICE_ROLE key
@@ -1341,12 +1342,9 @@ app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
   }
 });
 
-app.post('/api/admin/reset-database', verifyAuth, async (req, res) => {
+app.post('/api/admin/reset-database', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
-    userRoleOverrides.clear();
-    userRoleOverrides.set('krithickrajs.cs25@bitsathy.ac.in', 'admin');
-
     await supabase.from('test_submissions').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     await supabase.from('tests').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     try { await supabase.from('staff_requests').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (_) {}

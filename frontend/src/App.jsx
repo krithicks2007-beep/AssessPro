@@ -377,7 +377,10 @@ export default function App() {
                 email: currentUser?.email || savedData.email
               };
 
-              // 1. Direct Supabase save (highest reliability)
+              // Persist through the authenticated API first. Local cache is never authoritative.
+              await api.saveStudentProfile(fullData);
+
+              // Keep the browser cache only after the server confirms the write.
               const supabase = getSupabaseClient();
               if (supabase) {
                 await saveStudentProfileDirect(supabase, fullData);
@@ -391,19 +394,14 @@ export default function App() {
                 );
               }
 
-              // 3. Safe backend sync
-              await api.saveStudentProfile(fullData);
-
               setStudentProfile(fullData);
               setShowOnboarding(false);
               setAppActionSuccess('Profile updated successfully!');
               setTimeout(() => setAppActionSuccess(''), 3000);
             } catch (err) {
-              console.error('Profile save note:', err);
-              setStudentProfile(savedData);
-              setShowOnboarding(false);
-              setAppActionSuccess('Profile updated!');
-              setTimeout(() => setAppActionSuccess(''), 3000);
+              console.error('Profile save failed:', err);
+              setAppActionError(err.message || 'Profile could not be saved.');
+              setTimeout(() => setAppActionError(''), 4000);
             }
           }}
         />

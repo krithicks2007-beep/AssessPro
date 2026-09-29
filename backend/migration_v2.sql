@@ -55,13 +55,7 @@ DROP POLICY IF EXISTS "Allow all on tests" ON public.tests;
 DROP POLICY IF EXISTS "Allow all on submissions" ON public.test_submissions;
 DROP POLICY IF EXISTS "Allow all on staff_requests" ON public.staff_requests;
 
-CREATE POLICY "Allow all on users" ON public.users FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on students" ON public.students FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on staff" ON public.staff FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on groups" ON public.groups FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on tests" ON public.tests FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on submissions" ON public.test_submissions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on staff_requests" ON public.staff_requests FOR ALL USING (true) WITH CHECK (true);
+-- Security policies are installed by fix_rls.sql. Do not recreate public allow-all policies here.
 
 -- 6. Trigger handle_new_user(): Clean separation between BIT institutional and personal (@gmail) accounts
 CREATE OR REPLACE FUNCTION public.handle_new_user()
