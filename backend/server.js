@@ -460,8 +460,21 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
     } else if (role === 'staff') {
       if (supabase) {
         try {
-          await supabase.from('staff_requests').upsert({ email: cleanEmail, name, status: 'pending' });
-        } catch (_) {}
+          // Try upsert first; if it fails due to missing unique constraint, use delete+insert
+          const { error: upsertErr } = await supabase
+            .from('staff_requests')
+            .upsert({ email: cleanEmail, name, status: 'pending' }, { onConflict: 'email' });
+          if (upsertErr) {
+            // Fallback: delete old record then insert fresh
+            await supabase.from('staff_requests').delete().eq('email', cleanEmail);
+            const { error: insertErr } = await supabase
+              .from('staff_requests')
+              .insert({ email: cleanEmail, name, status: 'pending' });
+            if (insertErr) console.warn('staff_requests insert error:', insertErr.message);
+          }
+        } catch (dbErr) {
+          console.warn('staff_requests upsert error:', dbErr.message);
+        }
       }
       userRoleOverrides.set(cleanEmail, 'pending_staff');
       return res.json({
@@ -515,10 +528,17 @@ app.get('/api/auth/staff-request-status', async (req, res) => {
 app.get('/api/admin/staff-requests', verifyAuth, async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
-    const { data, error } = await supabase.from('staff_requests').select('*').order('created_at', { ascending: false });
+    // Try ordering by created_at; fall back without order if column missing
+    let data, error;
+    ({ data, error } = await supabase.from('staff_requests').select('*').order('created_at', { ascending: false }));
+    if (error) {
+      console.warn('staff_requests order error, retrying without order:', error.message);
+      ({ data, error } = await supabase.from('staff_requests').select('*'));
+    }
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
+    console.error('Failed to fetch staff requests:', err.message);
     res.status(500).json({ error: 'Failed to fetch staff requests', details: err.message });
   }
 });
@@ -1228,6 +1248,8 @@ app.put('/api/admin/users/:id/role', verifyAuth, async (req, res) => {
 });
 
 app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+
   const { id } = req.params;
   const emailQuery = (req.query.email || '').toLowerCase().trim();
 
@@ -1235,57 +1257,64 @@ app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
     let targetId = id;
     let targetEmail = emailQuery;
 
-    // Find user record in DB if email wasn't passed
-    if (supabase) {
-      if (!targetEmail) {
-        const { data: u } = await supabase.from('users').select('id, mailid').eq('id', id).maybeSingle();
-        if (u) {
-          targetEmail = (u.mailid || '').toLowerCase();
-        }
-      }
-
-      // Check if attempting to delete Super Admin
-      if (targetEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
-        return res.status(403).json({ error: 'Super Admin account cannot be deleted' });
-      }
-
-      // Delete from all tables
-      try {
-        if (targetId && !targetId.startsWith('dyn-')) {
-          await supabase.from('students').delete().eq('id', targetId);
-          await supabase.from('staff').delete().eq('id', targetId);
-          await supabase.from('users').delete().eq('id', targetId);
-        }
-        if (targetEmail) {
-          await supabase.from('users').delete().eq('mailid', targetEmail);
-        }
-      } catch (dbErr) {
-        console.warn('Database user deletion note:', dbErr.message);
-      }
-
-      // Delete from auth.users via Supabase Admin API
-      try {
-        if (targetId && !targetId.startsWith('dyn-')) {
-          await supabase.auth.admin.deleteUser(targetId);
-        } else if (targetEmail) {
-          const { data: { users } } = await supabase.auth.admin.listUsers();
-          const authUser = users?.find(u => u.email.toLowerCase() === targetEmail);
-          if (authUser) {
-            await supabase.auth.admin.deleteUser(authUser.id);
-          }
-        }
-      } catch (authErr) {
-        console.warn('Auth user deletion note:', authErr.message);
-      }
+    // Resolve email from DB if not provided
+    if (!targetEmail) {
+      const { data: u } = await supabase.from('users').select('id, mailid').eq('id', id).maybeSingle();
+      if (u) targetEmail = (u.mailid || '').toLowerCase();
     }
 
-    // Clear from in-memory role overrides
+    // Guard: never delete Super Admin
+    if (targetEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+      return res.status(403).json({ error: 'Super Admin account cannot be deleted' });
+    }
+
+    const errors = [];
+
+    // 1. Delete from students table
+    if (targetId && !targetId.startsWith('dyn-')) {
+      const { error: stErr } = await supabase.from('students').delete().eq('id', targetId);
+      if (stErr) errors.push('students: ' + stErr.message);
+
+      const { error: sfErr } = await supabase.from('staff').delete().eq('id', targetId);
+      if (sfErr) errors.push('staff: ' + sfErr.message);
+
+      const { error: uErr } = await supabase.from('users').delete().eq('id', targetId);
+      if (uErr) errors.push('users(id): ' + uErr.message);
+    }
+
+    // Also delete by email in case id differs
     if (targetEmail) {
-      userRoleOverrides.delete(targetEmail);
+      await supabase.from('users').delete().eq('mailid', targetEmail);
+      await supabase.from('staff_requests').delete().eq('email', targetEmail);
     }
 
-    res.json({ success: true, message: `User ${targetEmail || id} completely deleted from system.` });
+    // 2. Try auth.admin.deleteUser — only works with SERVICE_ROLE key
+    const hasServiceRole = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+    if (hasServiceRole && targetId && !targetId.startsWith('dyn-')) {
+      try {
+        const { error: authErr } = await supabase.auth.admin.deleteUser(targetId);
+        if (authErr) errors.push('auth: ' + authErr.message);
+      } catch (authEx) {
+        errors.push('auth: ' + authEx.message);
+      }
+    }
+
+    // 3. Clear in-memory role overrides
+    if (targetEmail) userRoleOverrides.delete(targetEmail);
+
+    if (errors.length > 0) {
+      console.warn('User deletion partial errors:', errors);
+      // Still return success if users table was cleaned (auth deletion needs service role)
+      return res.json({
+        success: true,
+        message: `User ${targetEmail || id} removed from database. Note: ${errors.join('; ')}`,
+        warnings: errors
+      });
+    }
+
+    res.json({ success: true, message: `User ${targetEmail || id} completely deleted.` });
   } catch (err) {
+    console.error('Delete user error:', err.message);
     res.status(500).json({ error: 'Failed to delete user', details: err.message });
   }
 });

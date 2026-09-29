@@ -873,6 +873,7 @@ export const api = {
   },
 
   async getStaffRequests() {
+    // 1. Try backend API route
     try {
       const res = await fetchWithTimeout(`${API_BASE}/admin/staff-requests`, {
         headers: getAuthHeaders()
@@ -881,7 +882,24 @@ export const api = {
         const data = await safeJson(res);
         if (Array.isArray(data)) return data;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Backend getStaffRequests error:', e.message);
+    }
+
+    // 2. Direct Supabase fallback
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('staff_requests')
+          .select('*');
+        if (!error && Array.isArray(data)) return data;
+      }
+    } catch (e) {
+      console.warn('Direct Supabase getStaffRequests error:', e.message);
+    }
+
+    // 3. LocalStorage fallback (offline / no DB)
     return JSON.parse(localStorage.getItem('assesspro_staff_requests') || '[]');
   },
 
@@ -1103,30 +1121,55 @@ export const api = {
 
   async deleteUserCompletely(id, email) {
     const cleanEmail = (email || '').toLowerCase().trim();
+
+    // 1. Try backend API (handles auth.admin.deleteUser if service role is set)
     try {
       const res = await fetchWithTimeout(`${API_BASE}/admin/users/${id}?email=${encodeURIComponent(cleanEmail)}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });
+      const data = await safeJson(res);
       if (res.ok) {
-        // Clear local caches for this user
+        // Clear local caches
         if (cleanEmail) {
           localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
           localStorage.removeItem(`assesspro_role_${cleanEmail}`);
           localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
         }
-        return await safeJson(res);
+        return data;
       }
+      // Backend returned an error response — throw it so the UI shows it
+      throw new Error(data?.error || `Server returned ${res.status}`);
     } catch (e) {
-      console.warn('API deleteUserCompletely note:', e.message);
+      // If it's a network/timeout error, try direct Supabase delete
+      if (!e.message.includes('Server returned')) {
+        console.warn('Backend delete failed, trying direct Supabase:', e.message);
+        try {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            if (id && !id.startsWith('dyn-')) {
+              await supabase.from('students').delete().eq('id', id);
+              await supabase.from('staff').delete().eq('id', id);
+              await supabase.from('users').delete().eq('id', id);
+            }
+            if (cleanEmail) {
+              await supabase.from('users').delete().eq('mailid', cleanEmail);
+              await supabase.from('staff_requests').delete().eq('email', cleanEmail);
+            }
+            // Clear local caches
+            if (cleanEmail) {
+              localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
+              localStorage.removeItem(`assesspro_role_${cleanEmail}`);
+              localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
+            }
+            return { success: true, note: 'Deleted via direct Supabase (auth record may remain)' };
+          }
+        } catch (sbErr) {
+          throw new Error('Delete failed: ' + sbErr.message);
+        }
+      }
+      throw e; // Re-throw backend errors
     }
-
-    if (cleanEmail) {
-      localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
-      localStorage.removeItem(`assesspro_role_${cleanEmail}`);
-      localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
-    }
-    return { success: true };
   }
 };
 
