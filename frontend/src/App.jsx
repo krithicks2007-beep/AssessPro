@@ -161,10 +161,25 @@ export default function App() {
     });
 
     // Check current active session on load
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
       if (session?.user) {
         validateAndSetSession(session);
+      } else {
+        // Fallback for manual logins where session is only in localStorage
+        const token = localStorage.getItem('assesspro_auth_token');
+        if (token) {
+          try {
+            const profileInfo = await api.getUserProfile();
+            if (profileInfo && profileInfo.user) {
+              validateAndSetSession({ user: profileInfo.user, access_token: token });
+            } else {
+              localStorage.removeItem('assesspro_auth_token');
+            }
+          } catch (e) {
+            console.warn('Manual session restore failed:', e.message);
+          }
+        }
       }
     });
 
