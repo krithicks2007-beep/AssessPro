@@ -72,7 +72,6 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
       sessionStorage.removeItem(`exam_state_${test.id}`);
     }
   }, [stage, answers, timeLeftSeconds, tabSwitchCount, test]);
-  const autoSubmitRef = useRef(null);
 
   // Fullscreen Helper Functions
   const requestFullscreenMode = async () => {
