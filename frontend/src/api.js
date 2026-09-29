@@ -5,7 +5,10 @@ import { getSupabaseClient } from './supabaseClient';
  * Communicates with the Express Backend (http://localhost:5000 via Vite proxy '/api')
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+let API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+if (!API_BASE.endsWith('/api')) {
+  API_BASE += '/api';
+}
 
 const safeJson = async (res) => {
   try {
@@ -26,6 +29,7 @@ const fetchWithTimeout = async (url, options = {}, timeout = 8000) => {
     const response = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
     if (response.status === 401 && !url.includes('/auth/login')) {
+      console.error('API returned 401 Unauthorized. Dispatching session-expired. URL:', url);
       window.dispatchEvent(new CustomEvent('session-expired'));
     }
     return response;
