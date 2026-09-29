@@ -1,23 +1,23 @@
 import React from 'react';
 import { ShieldAlert, X, ArrowRight, Lock } from 'lucide-react';
 
-export default function AuthErrorModal({ isOpen, onClose, error, allowedDomain = 'bitsathy.ac.in' }) {
+export default function AuthErrorModal({ isOpen, onClose, error }) {
   if (!isOpen) return null;
 
-  // Format raw or technical errors into user-friendly institutional explanations
+  // Format raw or technical errors into a concise, user-friendly explanation.
   const getFriendlyMessage = (rawError = '') => {
     const lower = rawError.toLowerCase();
     if (lower.includes('database error') || lower.includes('saving new user') || lower.includes('access denied') || lower.includes('not authorized') || lower.includes('domain')) {
       return {
-        title: 'Institutional Account Required',
-        description: `Access to AssessPro is restricted exclusively to official @${allowedDomain} accounts. Personal email addresses (like @gmail.com) are not authorized.`,
-        hint: `Please ensure you select your official Bannari Amman Institute of Technology account (e.g., student roll ID or staff mail) when signing in with Google.`
+        title: 'Sign-in Could Not Be Completed',
+        description: 'Please check your credentials and try again. Any valid email account supported by the configured authentication provider can sign in.',
+        hint: 'Use a valid email account and try again.'
       };
     }
     return {
       title: 'Authentication Failed',
       description: rawError || 'An error occurred during authentication. Please verify your credentials and try again.',
-      hint: `Only authorized institutional users (@${allowedDomain}) can log in.`
+      hint: 'Use a valid email account and try again.'
     };
   };
 

@@ -84,7 +84,7 @@ function ConfigModalInner({ isOpen, onClose, onConfigSaved }) {
             1. In Google Cloud Console: create OAuth 2.0 Web Client credentials.<br />
             2. Set Authorized Redirect URI in Google Console to: <code style={{ color: '#a5b4fc' }}>https://&lt;your-project&gt;.supabase.co/auth/v1/callback</code><br />
             3. In Supabase Dashboard → Authentication → Providers → Google: Enable it, paste Client ID and Secret.<br />
-            4. Done! Our app automatically passes <code style={{ color: '#a5b4fc' }}>hd: bitsathy.ac.in</code> to restrict accounts.
+            4. Done! Users can sign in with any email account supported by your Supabase project.
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

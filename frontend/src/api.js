@@ -823,52 +823,14 @@ export const api = {
     return JSON.parse(localStorage.getItem('assesspro_staff_requests') || '[]');
   },
 
-  async approveStaffRequest(id, email) {
-    let backendOk = false;
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/admin/staff-requests/${id}/approve`, {
-        method: 'POST',
-        headers: getAuthHeaders()
-      });
-      if (res.ok) {
-        backendOk = true;
-        const data = await safeJson(res);
-        return data;
-      }
-    } catch (e) {
-      console.warn('Backend approveStaffRequest error:', e.message);
-    }
-
-    // Direct Supabase fallback
-    try {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        const cleanEmail = (email || '').toLowerCase().trim();
-        // Update staff_requests table
-        await supabase.from('staff_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('email', cleanEmail);
-        
-        // Upsert into users table as staff
-        const { data: exUser } = await supabase.from('users').select('id, name').eq('mailid', cleanEmail).maybeSingle();
-        if (exUser?.id) {
-           await supabase.from('users').update({ UserType: 'staff' }).eq('id', exUser.id);
-        } else {
-           // We might not have the ID from auth, so we just update by mailid if it exists
-           await supabase.from('users').update({ UserType: 'staff' }).eq('mailid', cleanEmail);
-        }
-        
-        // Local fallback update
-        const reqs = JSON.parse(localStorage.getItem('assesspro_staff_requests') || '[]');
-        const updated = reqs.map(r => (r.id === id || r.email === email) ? { ...r, status: 'approved' } : r);
-        localStorage.setItem('assesspro_staff_requests', JSON.stringify(updated));
-        if (email) localStorage.setItem(`assesspro_role_${cleanEmail}`, 'staff');
-        
-        return { success: true, note: 'Approved via direct Supabase' };
-      }
-    } catch (sbErr) {
-      console.warn('Direct Supabase approve error:', sbErr.message);
-    }
-    
-    return { success: true };
+  async approveStaffRequest(id) {
+    const res = await fetchWithTimeout(`${API_BASE}/admin/staff-requests/${id}/approve`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Approval failed');
+    return data;
   },
 
   async rejectStaffRequest(id, email) {

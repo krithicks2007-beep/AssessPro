@@ -9,9 +9,7 @@ export const getSupabaseConfig = () => {
 
   const supabaseUrl = envUrl || localUrl || '';
   const supabaseAnonKey = envKey || localKey || '';
-  const allowedDomain = import.meta.env.VITE_ALLOWED_DOMAIN || 'bitsathy.ac.in';
-
-  return { supabaseUrl, supabaseAnonKey, allowedDomain };
+  return { supabaseUrl, supabaseAnonKey };
 };
 
 export const saveSupabaseConfig = (url, anonKey) => {
@@ -42,8 +40,7 @@ export const getSupabaseClient = () => {
 };
 
 /**
- * Triggers Google OAuth with Hosted Domain ('hd') set to 'bitsathy.ac.in'
- * Displays Google's account picker: "Choose an account to continue to bitsathy.ac.in"
+ * Triggers Google OAuth without restricting the email domain.
  */
 export const signInWithGoogleBitsathy = async (supabase) => {
   if (!supabase) {
@@ -56,8 +53,7 @@ export const signInWithGoogleBitsathy = async (supabase) => {
       redirectTo: window.location.origin,
       queryParams: {
         prompt: 'select_account',
-        access_type: 'offline',
-        hd: import.meta.env.VITE_ALLOWED_DOMAIN || 'bitsathy.ac.in'
+        access_type: 'offline'
       }
     }
   });

@@ -584,7 +584,13 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admi
   if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
 
   const cleanEmail = targetReq.email.toLowerCase().trim();
-  await supabase.from('staff_requests').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', targetReq.id);
+  const { error: approvalError } = await supabase
+    .from('staff_requests')
+    .update({ status: 'approved', reviewed_at: new Date().toISOString() })
+    .eq('id', targetReq.id);
+  if (approvalError) {
+    return res.status(500).json({ error: 'Failed to approve staff request', details: approvalError.message });
+  }
   try {
     let userId = null;
     try {
@@ -1263,13 +1269,8 @@ app.put('/api/admin/users/:id/role', verifyAuth, requireRoles('admin'), async (r
   }
 });
 
-<<<<<<< HEAD
-app.delete('/api/admin/users/:id', verifyAuth, async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
-
-=======
 app.delete('/api/admin/users/:id', verifyAuth, requireRoles('admin'), async (req, res) => {
->>>>>>> b9eca3a (fixed auth)
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { id } = req.params;
   const emailQuery = (req.query.email || '').toLowerCase().trim();
 
@@ -1304,11 +1305,8 @@ app.delete('/api/admin/users/:id', verifyAuth, requireRoles('admin'), async (req
 
     // Also delete by email in case id differs
     if (targetEmail) {
-<<<<<<< HEAD
       await supabase.from('users').delete().eq('mailid', targetEmail);
       await supabase.from('staff_requests').delete().eq('email', targetEmail);
-=======
->>>>>>> b9eca3a (fixed auth)
     }
 
     // 2. Try auth.admin.deleteUser — only works with SERVICE_ROLE key

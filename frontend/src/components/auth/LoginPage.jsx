@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { 
   signInWithGoogleBitsathy, 
   signInWithEmailPassword,
-  getSupabaseClient, 
-  getSupabaseConfig 
+  getSupabaseClient
 } from '../../supabaseClient';
 import { GraduationCap, AlertCircle, Eye, EyeOff } from 'lucide-react';
 
@@ -16,8 +15,6 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  const { allowedDomain } = getSupabaseConfig();
 
   // Handle Email / Password Login via Backend API
   const handleEmailSignIn = async (e) => {
@@ -37,7 +34,7 @@ export default function LoginPage({ onLoginSuccess, onEnterDemo }) {
     }
   };
 
-  // Handle Google OAuth Sign In (@bitsathy.ac.in)
+  // Handle Google OAuth Sign In for any email address.
   const handleGoogleSignIn = async () => {
     setErrorMsg('');
     const supabase = getSupabaseClient();

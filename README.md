@@ -1,6 +1,6 @@
 # AssessPro - Continuous Assessment & Intelligence Portal
 
-Educational assessment and performance tracking web application with domain-gated authentication for **Bannari Amman Institute of Technology (`@bitsathy.ac.in`)**.
+Educational assessment and performance tracking web application with email-based authentication.
 
 ---
 
@@ -8,7 +8,7 @@ Educational assessment and performance tracking web application with domain-gate
 
 The project is structured with a **clean separation of concerns**:
 - **Frontend (Client UI)**: React 19 + Vite. Responsible for rendering the modern interface, managing local client state, and communicating exclusively with the backend via `/api/...` REST endpoints.
-- **Backend (API Service)**: Node.js + Express. Responsible for request routing, authentication checks, institutional domain security enforcement (`@bitsathy.ac.in`), business logic, and database operations.
+- **Backend (API Service)**: Node.js + Express. Responsible for request routing, authentication checks, business logic, and database operations.
 
 ```
 AssessPro/
@@ -87,8 +87,8 @@ npm run dev
 
 Deploy this repository as two Vercel projects:
 
-1. Create a backend project with root directory `backend`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_DOMAIN`, and `ALLOWED_ORIGINS` (the deployed frontend URL plus local development URLs). Use `backend/vercel.json` and verify `/api/health` on the deployed backend URL.
-2. Create a frontend project with root directory `frontend`. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ALLOWED_DOMAIN`, and `VITE_API_URL` to the backend deployment URL. Use `frontend/vercel.json`.
+1. Create a backend project with root directory `backend`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `ALLOWED_DOMAIN` for default role classification, and `ALLOWED_ORIGINS` (the deployed frontend URL plus local development URLs). Use `backend/vercel.json` and verify `/api/health` on the deployed backend URL.
+2. Create a frontend project with root directory `frontend`. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_ALLOWED_DOMAIN` for default role classification, and `VITE_API_URL` to the backend deployment URL. Use `frontend/vercel.json`.
 3. Apply `backend/schema.sql`, the required additive migrations, and `backend/fix_rls.sql` in Supabase. Never use the old allow-all policies.
 4. Configure the Supabase site URL, Google OAuth callback, and allowed redirect URLs with the deployed frontend URL.
 

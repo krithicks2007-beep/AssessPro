@@ -36,7 +36,7 @@ export default function AdminDashboard({ user, onSignOut }) {
         email: u.mailid || u.email,
         role: u.UserType || u.role || 'student',
         status: 'Active',
-        lastLogin: 'Verified @bitsathy.ac.in'
+        lastLogin: 'Authenticated account'
       }));
       setUsersList(mapped);
     } catch (err) {
@@ -50,7 +50,7 @@ export default function AdminDashboard({ user, onSignOut }) {
   const loadStaffRequests = useCallback(async () => {
     try {
       const reqs = await api.getStaffRequests();
-      setStaffRequests(Array.isArray(reqs) ? reqs : []);
+      setStaffRequests(Array.isArray(reqs) ? reqs.filter(req => req.status === 'pending') : []);
     } catch (err) {
       console.warn('Error loading staff requests:', err);
     }
@@ -66,6 +66,7 @@ export default function AdminDashboard({ user, onSignOut }) {
   const handleApproveStaff = async (id, email) => {
     try {
       await api.approveStaffRequest(id, email);
+      setStaffRequests((current) => current.filter((request) => request.id !== id));
       setActionMsg(`Approved staff privileges for ${email}`);
       setTimeout(() => setActionMsg(''), 4000);
       await loadStaffRequests();
@@ -270,9 +271,9 @@ export default function AdminDashboard({ user, onSignOut }) {
                 <Lock size={22} strokeWidth={2.5} />
               </div>
               <div className="kpi-info">
-                <div className="kpi-val" style={{ fontSize: '1.25rem' }}>@bitsathy.ac.in</div>
-                <div className="kpi-label">Institutional Domain</div>
-                <div className="kpi-sub">Enforced by OAuth</div>
+                <div className="kpi-val" style={{ fontSize: '1.25rem' }}>Open Access</div>
+                <div className="kpi-label">Email Accounts</div>
+                <div className="kpi-sub">Any verified email can sign in</div>
               </div>
             </div>
           </div>
@@ -288,7 +289,7 @@ export default function AdminDashboard({ user, onSignOut }) {
                     Staff / Faculty Access Requests
                   </h3>
                   <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
-                    External accounts requesting Staff role to create tests and manage students
+                    Accounts requesting Staff role to create tests and manage students
                   </p>
                 </div>
               </div>
@@ -389,7 +390,7 @@ export default function AdminDashboard({ user, onSignOut }) {
                     Authorized Institutional Users
                   </h3>
                   <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
-                    Users authenticated via Google OAuth with bitsathy.ac.in hosted domain.
+                    Users authenticated through the configured Supabase providers.
                   </p>
                 </div>
                 

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { 
   getSupabaseClient, 
-  getSupabaseConfig, 
   resolveRoleFromEmail,
   saveStudentProfileDirect,
   fetchStudentProfileDirect
@@ -26,8 +25,6 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [appActionSuccess, setAppActionSuccess] = useState('');
   const [appActionError, setAppActionError] = useState('');
-
-  const { allowedDomain } = getSupabaseConfig();
 
   const validateAndSetSession = useCallback(async (currentSession) => {
     if (!currentSession?.user) {
@@ -452,7 +449,6 @@ export default function App() {
           isOpen={Boolean(authError)}
           onClose={() => setAuthError('')}
           error={authError}
-          allowedDomain={allowedDomain}
         />
 
         <LoginPage
@@ -466,7 +462,7 @@ export default function App() {
 
       {/* Clean Light Footer */}
       <footer className="footer">
-        AssessPro &bull; Bannari Amman Institute of Technology &bull; @bitsathy.ac.in
+        AssessPro &bull; Continuous Assessment Portal
       </footer>
     </div>
   );
