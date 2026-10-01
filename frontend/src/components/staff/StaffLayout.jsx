@@ -238,6 +238,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       await loadData();
     } catch (err) {
       notifyError(err.message || 'Failed to delete test');
+      await loadData(); // Reload data to restore the optimistically removed card
     }
   };
 

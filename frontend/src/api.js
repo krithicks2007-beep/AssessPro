@@ -84,12 +84,40 @@ export const api = {
   // 3. User Profile
   async getUserProfile() {
     const headers = getAuthHeaders();
-    const res = await fetchWithTimeout(`${API_BASE}/user/profile`, { headers });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to fetch profile');
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/user/profile`, { headers });
+      if (res.ok) {
+        const data = await safeJson(res);
+        return data;
+      }
+    } catch(err) {
+      console.warn('Backend getUserProfile failed, trying fallback', err);
     }
-    return data;
+
+    // Direct Supabase Fallback
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('No backend or supabase client');
+    
+    const session = await supabase.auth.getSession();
+    const user = session?.data?.session?.user;
+    if (!user) throw new Error('Not authenticated');
+    
+    const email = (user.email || '').toLowerCase().trim();
+    const { data: profile } = await supabase.from('users').select('*').eq('mailid', email).maybeSingle();
+    
+    let role = 'unassigned';
+    if (email === 'krithickrajs.cs25@bitsathy.ac.in') role = 'admin';
+    else if (profile && profile.UserType && profile.UserType !== 'unassigned') role = profile.UserType;
+    else if (email.endsWith('@bitsathy.ac.in')) role = 'student'; // basic domain inference
+
+    // Also check staff requests if unassigned
+    if (role === 'unassigned') {
+      const { data: staffReq } = await supabase.from('staff_requests').select('*').eq('email', email).maybeSingle();
+      if (staffReq && staffReq.status === 'pending') role = 'pending_staff';
+      else if (staffReq && staffReq.status === 'approved') role = 'staff';
+    }
+
+    return { user, profile, role };
   },
 
   // 3b. Active Sessions Heartbeat
@@ -220,6 +248,12 @@ export const api = {
           if (testPayload.totalQuestions !== undefined) payload.total_questions = testPayload.totalQuestions;
           if (testPayload.maxScore !== undefined) payload.max_score = testPayload.maxScore;
           if (testPayload.assignedStudents !== undefined) payload.assigned_students = testPayload.assignedStudents;
+          if (testPayload.questions !== undefined) payload.questions = testPayload.questions;
+          if (testPayload.questions !== undefined) payload.total_questions = testPayload.questions.length;
+          if (testPayload.startTime !== undefined) payload.start_time = testPayload.startTime;
+          if (testPayload.endTime !== undefined) payload.end_time = testPayload.endTime;
+          if (testPayload.allowLatecomers !== undefined) payload.allow_latecomers = testPayload.allowLatecomers;
+          if (testPayload.uploadedFileName || testPayload.uploaded_file_name) payload.uploaded_file_name = testPayload.uploadedFileName || testPayload.uploaded_file_name;
 
           const { data } = await supabase
             .from('tests')
@@ -376,6 +410,12 @@ export const api = {
             status: testData.status || 'published',
             max_score: parseInt(testData.maxScore) || 100,
             scheduled_date: testData.startTime || new Date().toISOString(),
+            start_time: testData.startTime || new Date().toISOString(),
+            end_time: testData.endTime || new Date(Date.now() + 86400000).toISOString(),
+            allow_latecomers: testData.allowLatecomers !== false,
+            questions: Array.isArray(testData.questions) ? testData.questions : [],
+            total_questions: Array.isArray(testData.questions) ? testData.questions.length : 10,
+            uploaded_file_name: testData.uploadedFileName || testData.uploaded_file_name || null,
             assigned_students: Array.isArray(testData.assignedStudents) ? testData.assignedStudents : []
           };
           if (isValidUUID(testData.userId)) {
@@ -419,13 +459,14 @@ export const api = {
   },
 
   async deleteTest(testId, keepData = false) {
-    try {
-      await fetchWithTimeout(`${API_BASE}/tests/${testId}?keepData=${keepData}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders()
-      });
-    } catch (err) {
-      console.warn('Backend deleteTest error:', err.message);
+    const res = await fetchWithTimeout(`${API_BASE}/tests/${testId}?keepData=${keepData}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const data = await safeJson(res);
+      const errMsg = data.details ? `${data.error}: ${data.details}` : (data.error || 'Failed to delete test');
+      throw new Error(errMsg);
     }
     return true;
   },
