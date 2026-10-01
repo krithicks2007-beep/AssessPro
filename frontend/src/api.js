@@ -182,39 +182,83 @@ export const api = {
   },
 
   async createGroup(groupData) {
-    const res = await fetchWithTimeout(`${API_BASE}/groups`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(groupData)
-    });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to create group');
+    let created = null;
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/groups`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(groupData)
+      });
+      if (res.ok) {
+        created = await safeJson(res);
+      } else {
+        const data = await safeJson(res);
+        throw new Error(data.error || 'Failed to create group');
+      }
+    } catch (err) {
+      console.warn('Backend createGroup failed, trying fallback:', err.message);
     }
-    return data;
+    
+    if (!created) {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Failed to create group: Backend unreachable');
+      const { data, error } = await supabase.from('groups').insert([{ ...groupData }]).select().maybeSingle();
+      if (error) throw new Error(error.message);
+      created = data;
+    }
+    return created;
   },
 
   async updateGroupName(id, name) {
-    const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
-      method: 'PUT',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ name })
-    });
-    const data = await safeJson(res);
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to update group name');
+    let updated = null;
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        updated = await safeJson(res);
+      } else {
+        const data = await safeJson(res);
+        throw new Error(data.error || 'Failed to update group name');
+      }
+    } catch (err) {
+      console.warn('Backend updateGroupName failed, trying fallback:', err.message);
     }
-    return data;
+
+    if (!updated) {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Failed to update group name: Backend unreachable');
+      const { data, error } = await supabase.from('groups').update({ name }).eq('id', id).select().maybeSingle();
+      if (error) throw new Error(error.message);
+      updated = data;
+    }
+    return updated;
   },
 
   async deleteGroup(id) {
-    const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) {
-      const data = await safeJson(res);
-      throw new Error(data.error || 'Failed to delete group');
+    let deleted = false;
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        deleted = true;
+      } else {
+        const data = await safeJson(res);
+        throw new Error(data.error || 'Failed to delete group');
+      }
+    } catch (err) {
+      console.warn('Backend deleteGroup failed, trying fallback:', err.message);
+    }
+
+    if (!deleted) {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Failed to delete group: Backend unreachable');
+      const { error } = await supabase.from('groups').delete().eq('id', id);
+      if (error) throw new Error(error.message);
     }
     return true;
   },
@@ -516,14 +560,45 @@ export const api = {
         throw new Error(serverError || 'Submission was not confirmed by the server');
       }
     } catch (err) {
-      throw new Error(`Submission could not be saved: ${err.message}`);
+      console.warn('Backend submitTest failed, trying fallback:', err.message);
+      if (err.message && err.message !== 'Failed to fetch' && err.message !== 'Request timed out' && !err.message.includes('NetworkError')) {
+        throw err;
+      }
     }
 
     if (!submitted) {
-      throw new Error('Submission was not confirmed by the server');
+      // Direct Supabase Fallback
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Submission could not be saved: Backend unreachable');
+
+      const payload = {
+        id: submissionData.id || `sub-${Date.now()}`,
+        test_id: testId,
+        student_email: submissionData.studentEmail || submissionData.student_email,
+        student_name: submissionData.studentName || submissionData.student_name,
+        score: submissionData.score || 0,
+        percentage: submissionData.percentage || 0,
+        correct_count: submissionData.correct_count || 0,
+        total_questions: submissionData.total_questions || 0,
+        max_score: submissionData.max_score || 0,
+        tab_switch_count: submissionData.tabSwitchCount || submissionData.tab_switch_count || 0,
+        time_taken_seconds: submissionData.timeTakenSeconds || submissionData.time_taken_seconds || 0,
+        answers: submissionData.answers || {},
+        status: submissionData.status || 'completed',
+        submitted_at: submissionData.submitted_at || new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('test_submissions')
+        .upsert(payload)
+        .select()
+        .maybeSingle();
+
+      if (error) {
+        throw new Error(`Submission could not be saved: ${error.message}`);
+      }
+      submitted = data || payload;
     }
-
-
 
     return submitted;
   },
