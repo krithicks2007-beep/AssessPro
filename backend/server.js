@@ -8,6 +8,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || 'bitsathy.ac.in').toLowerCase().trim();
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'krithickrajs.cs25@bitsathy.ac.in').toLowerCase().trim();
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173')
   .split(',').map(origin => origin.trim()).filter(Boolean);
 
@@ -58,17 +59,21 @@ const resolveRoleFromEmail = (email = '') => {
   const cleanEmail = (email || '').toLowerCase().trim();
   if (!cleanEmail) return 'student';
 
-  if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+  if (cleanEmail === SUPER_ADMIN_EMAIL) {
     return 'admin';
   }
-  // 1. Check explicit registered role override
-  // 2. Official emails (matching ALLOWED_DOMAIN): pattern-based detection
+  // Official institutional emails: pattern-based detection
   if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
-    return 'student';
+    // Emails with digits in the local part (e.g. .cs25, .al23) = student
+    // Emails without digits = staff
+    const localPart = cleanEmail.split('@')[0];
+    if (/\d/.test(localPart)) {
+      return 'student';
+    }
+    return 'staff';
   }
 
-  // 3. For Gmail / external domains: role resolved via Supabase in /api/auth/profile
-  // Return 'unassigned' so client presents role choice for new external users
+  // External/personal emails: role resolved via Supabase in /api/user/profile
   return 'unassigned';
 };
 
@@ -173,7 +178,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     // Absolute override for Super Admin
-    if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+    if (cleanEmail === SUPER_ADMIN_EMAIL) {
       role = 'admin';
     }
 
@@ -294,10 +299,10 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
     const cleanEmail = (user.email || '').toLowerCase().trim();
 
     // 1. Super Admin is always admin
-    if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+    if (cleanEmail === SUPER_ADMIN_EMAIL) {
       let adminProf = {
         id: user.id,
-        name: user.user_metadata?.full_name || 'KRITHICK RAJ S',
+        name: user.user_metadata?.full_name || cleanEmail.split('@')[0],
         mailid: cleanEmail,
         UserType: 'admin'
       };
@@ -340,7 +345,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
     // 2b. Handle personal/external emails (e.g. @gmail.com):
     // Even if Supabase PostgreSQL trigger created a row with UserType: 'student',
     // personal/external users MUST explicitly choose Student or Staff if they are new or have not completed their profile!
-    if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== 'krithickrajs.cs25@bitsathy.ac.in') {
+    if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== SUPER_ADMIN_EMAIL) {
       // Check if user has explicit approved staff request
       const staffReq = await getStaffRequestFromDB(cleanEmail);
       const approvedReq = staffReq?.status === 'approved' ? staffReq : null;
@@ -373,7 +378,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
       }
 
       // Only treat as verified student if they have completed their profile or selected student in this session
-      if (hasRealStudentProfile) {
+      if (hasRealStudentProfile || userRoleOverrides.get(cleanEmail) === 'student') {
         return res.json({ user, profile, role: 'student' });
       }
 
@@ -383,12 +388,9 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         return res.json({ user, profile, role: 'student' });
       }
 
-      // If user is new or has no profile: MUST prompt role verification / selection!
-      // Synchronize public.users UserType to 'unassigned' if it was auto-set by trigger
-      if (supabase && profile && profile.UserType !== 'unassigned') {
-        try {
-          await supabase.from('users').update({ UserType: 'unassigned' }).eq('id', profile.id);
-        } catch (e) {}
+      // If they already have ANY valid role assigned (e.g. set via Admin Console), respect it!
+      if (profile?.UserType && profile.UserType !== 'unassigned') {
+        return res.json({ user, profile, role: profile.UserType });
       }
 
       // User exists in DB but has not yet made a role choice (truly new/unclassified external user)
@@ -486,9 +488,14 @@ app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
         try {
           // Remove any pending staff request for this email
           await supabase.from('staff_requests').delete().eq('email', cleanEmail);
-          if (userId) await supabase.from('users').upsert({ id: userId, name, mailid: cleanEmail, UserType: 'student' });
-        } catch (e) {}
+          if (userId) {
+             const { error } = await supabase.from('users').upsert({ id: userId, name, mailid: cleanEmail, UserType: 'student' }, { onConflict: 'id' });
+             if (error) console.error('Upsert student role error:', error);
+          }
+        } catch (e) { console.error(e); }
       }
+      // Persist in-memory override (also persisted to DB above)
+      userRoleOverrides.set(cleanEmail, 'student');
       return res.json({ success: true, role: 'student', status: 'approved' });
     } else if (role === 'staff') {
       if (supabase) {
@@ -678,18 +685,19 @@ app.post('/api/student/profile', verifyAuth, requireOwnEmail, async (req, res) =
   let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
   let targetUserId = userRecord?.id || req.user.id;
 
-  if (!targetUserId && id === req.user.id) {
-    const { error: uErr } = await supabase.from('users').upsert({
-      id, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
-    });
+  if (!targetUserId) {
+    // Must have the auth user id to create the FK-linked users row
+    const authUserId = id || req.user.id;
+    if (authUserId) {
+      const { error: uErr } = await supabase.from('users').upsert({
+        id: authUserId, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
+      });
+      if (!uErr) targetUserId = authUserId;
+    }
   } else {
+    // Update name if changed
     try {
-      const { data: created } = await supabase.from('users').upsert({
-        name: name || cleanEmail.split('@')[0],
-        mailid: cleanEmail,
-        UserType: 'student'
-      }).select().maybeSingle();
-      if (created?.id) targetUserId = created.id;
+      await supabase.from('users').update({ name: name || cleanEmail.split('@')[0] }).eq('id', targetUserId);
     } catch (e) {}
   }
 
@@ -932,9 +940,35 @@ app.get('/api/tests', verifyAuth, async (req, res) => {
     if (error) throw error;
     if (!Array.isArray(data)) return res.json([]);
 
+    let avgMap = {};
+    try {
+      const testIds = data.map(t => t.id);
+      if (testIds.length > 0) {
+        const { data: subsData } = await supabase
+          .from('test_submissions')
+          .select('test_id, score, max_score')
+          .in('test_id', testIds);
+        if (subsData) {
+          const aggs = {};
+          subsData.forEach(s => {
+             if (!aggs[s.test_id]) aggs[s.test_id] = { totalPct: 0, count: 0 };
+             const pct = s.max_score > 0 ? (s.score / s.max_score) * 100 : 0;
+             aggs[s.test_id].totalPct += pct;
+             aggs[s.test_id].count++;
+          });
+          for (const tId in aggs) {
+             avgMap[tId] = aggs[tId].count > 0 ? Math.round(aggs[tId].totalPct / aggs[tId].count) : 0;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to compute test averages', e);
+    }
+
     const canSeeAnswers = ['staff', 'admin'].includes(req.userRole);
     let list = data.map(t => ({
       ...t,
+      avg: avgMap[t.id] || 0,
       assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
       questions: Array.isArray(t.questions) ? t.questions.map(q => canSeeAnswers ? q : (({ correct_index, ...safeQuestion }) => safeQuestion)(q)) : [],
       total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
@@ -1235,7 +1269,7 @@ app.get('/api/tests/:id/submissions', verifyAuth, requireRoles('staff', 'admin')
 });
 
 // All submissions for a student (student view)
-app.get('/api/student/submissions', verifyAuth, requireRoles('student'), requireOwnEmail, async (req, res) => {
+app.get('/api/student/submissions', verifyAuth, requireRoles('student', 'staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { email } = req.query;
   try {
@@ -1264,6 +1298,54 @@ app.get('/api/admin/users', verifyAuth, requireRoles('admin'), async (req, res) 
     res.json(data || []);
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve users', details: err.message });
+  }
+});
+
+// Admin: Update Student Profile (service-role bypasses RLS — BUG 1 FIX)
+app.put('/api/admin/students/:id', verifyAuth, requireRoles('admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { name, reg_no, department, year, dob, assigned_staff_id, assigned_staff_name } = req.body;
+
+  try {
+    // Update users table (name)
+    if (name) {
+      await supabase.from('users').update({ name }).eq('id', id);
+    }
+
+    // Build students payload — only include fields that are provided
+    const studentPayload = { id };
+    if (reg_no !== undefined) studentPayload.reg_no = reg_no;
+    if (department !== undefined) studentPayload.department = department;
+    if (year !== undefined) studentPayload.year = year;
+    if (dob !== undefined) studentPayload.dob = dob || null;
+    if (assigned_staff_id !== undefined) studentPayload.assigned_staff_id = assigned_staff_id || null;
+    if (assigned_staff_name !== undefined) studentPayload.assigned_staff_name = assigned_staff_name || null;
+
+    const { error } = await supabase.from('students').upsert(studentPayload, { onConflict: 'id' });
+    if (error) throw error;
+
+    res.json({ success: true, message: 'Student profile updated' });
+  } catch (err) {
+    console.error('Admin student update error:', err.message);
+    res.status(500).json({ error: 'Failed to update student: ' + err.message });
+  }
+});
+
+// Admin: Update Staff Profile (service-role bypasses RLS — BUG 2 FIX)
+app.put('/api/admin/staff/:id', verifyAuth, requireRoles('admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+  const { name } = req.body;
+
+  try {
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const { error } = await supabase.from('users').update({ name }).eq('id', id);
+    if (error) throw error;
+    res.json({ success: true, message: 'Staff name updated' });
+  } catch (err) {
+    console.error('Admin staff update error:', err.message);
+    res.status(500).json({ error: 'Failed to update staff: ' + err.message });
   }
 });
 
@@ -1309,7 +1391,7 @@ app.delete('/api/admin/users/:id', verifyAuth, requireRoles('admin'), async (req
     }
 
     // Guard: never delete Super Admin
-    if (targetEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
+    if (targetEmail === SUPER_ADMIN_EMAIL) {
       return res.status(403).json({ error: 'Super Admin account cannot be deleted' });
     }
 

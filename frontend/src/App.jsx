@@ -211,6 +211,27 @@ export default function App() {
     };
   }, [validateAndSetSession]);
 
+  // Global Presence Heartbeat
+  useEffect(() => {
+    if (!currentUser || !currentRole || currentRole === 'unassigned') return;
+    
+    const sendPing = () => {
+      const email = currentUser.email;
+      const name = currentUser.user_metadata?.full_name || studentProfile?.name || email.split('@')[0];
+      const activeTestId = sessionStorage.getItem('active_exam_id');
+      const status = activeTestId ? 'In Exam' : 'Online - Active';
+      
+      api.sendHeartbeat(email, name, currentRole, status, activeTestId);
+    };
+
+    // Send immediately on login/role change
+    sendPing();
+
+    // Then ping every 60 seconds
+    const interval = setInterval(sendPing, 60000);
+    return () => clearInterval(interval);
+  }, [currentUser, currentRole, studentProfile]);
+
   const handleSignOut = async () => {
     localStorage.removeItem('assesspro_auth_token');
     const cleanEmail = (currentUser?.email || '').toLowerCase().trim();
@@ -380,7 +401,7 @@ export default function App() {
           />
         )}
         {currentRole === 'staff' && (
-          <StaffLayout user={currentUser} onSignOut={handleSignOut} initialTab="Tests" />
+          <StaffLayout user={currentUser} onSignOut={handleSignOut} initialTab="Dashboard" />
         )}
         {currentRole === 'admin' && (
           <AdminLayout user={currentUser} onSignOut={handleSignOut} />

@@ -36,6 +36,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
+  const [totalStudentsCount, setTotalStudentsCount] = useState(0);
 
   // Staff Profile & Onboarding States
   const [staffProfile, setStaffProfile] = useState(null);
@@ -71,13 +72,15 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
 
   const loadData = async () => {
     try {
-      const [fetchedGroups, fetchedTests, fetchedProfile] = await Promise.all([
+      const [fetchedGroups, fetchedTests, fetchedProfile, fetchedStudents] = await Promise.all([
         api.getGroups(),
         api.getTests({ staffEmail: user?.email, staffId: user?.id }),
-        api.getStaffProfile(user?.email)
+        api.getStaffProfile(user?.email),
+        api.getAllStudents()
       ]);
       setGroups(fetchedGroups || []);
       setTests(fetchedTests || []);
+      setTotalStudentsCount(Array.isArray(fetchedStudents) ? fetchedStudents.length : 0);
 
       if (fetchedProfile) {
         setStaffProfile(fetchedProfile);
@@ -406,6 +409,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           <Students
             facultyName={facultyName}
             facultyId={user?.id}
+            allGroups={groups}
+            allTests={tests}
           />
         ) : activeTab === 'Tests' ? (
           <Tests
@@ -439,6 +444,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             groups={safeGroups}
             tests={safeTests}
             totalTestsCount={totalTestsCount}
+            totalStudentsCount={totalStudentsCount}
             publishedCount={publishedCount}
             draftCount={draftCount}
             activeTestsCount={activeTestsCount}

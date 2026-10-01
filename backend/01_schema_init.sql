@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS public.users (
 -- 2. Students Profile Extension Table
 CREATE TABLE IF NOT EXISTS public.students (
     id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
-    reg_no TEXT UNIQUE NOT NULL,
-    department TEXT NOT NULL DEFAULT 'Computer Science & Engineering',
+    reg_no TEXT,
+    department TEXT NOT NULL DEFAULT 'Computer Science and Engineering',
     year TEXT NOT NULL DEFAULT 'II Year',
     section TEXT NOT NULL DEFAULT 'A',
     dob DATE,
@@ -37,8 +37,8 @@ ALTER TABLE public.students ADD COLUMN IF NOT EXISTS assigned_staff_name TEXT;
 CREATE TABLE IF NOT EXISTS public.staff (
     id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
     staff_code TEXT UNIQUE NOT NULL,
-    department TEXT NOT NULL DEFAULT 'Mechatronics Engineering',
-    designation TEXT NOT NULL DEFAULT 'Associate Professor'
+    department TEXT NOT NULL DEFAULT 'Computer Science and Engineering',
+    designation TEXT NOT NULL DEFAULT 'Assistant Professor'
 );
 
 -- 4. Test Groups

@@ -10,253 +10,510 @@ import {
   Edit3,
   UserPlus,
   ChevronDown,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Check,
+  Hourglass,
+  BookOpen,
+  Cpu,
+  Bot,
+  Calculator,
+  Settings,
+  Flame,
+  Droplet,
+  Thermometer,
+  Activity,
+  Monitor,
+  Building,
+  ArrowRight
 } from 'lucide-react';
-import { StaffCircleRing } from '../shared/CircleRing';
+import CircleRing from '../shared/CircleRing';
 
 /**
- * Staff Dashboard Tab
- * Shows KPI cards, performance bar chart, group-wise rings, recent tests table, and activity feed.
+ * Pick an appropriate subject/test icon based on test title or index
  */
+const getTestIcon = (title = '', index = 0) => {
+  const t = title.toLowerCase();
+  if (t.includes('math') || t.includes('calcul') || t.includes('algebra')) return Calculator;
+  if (t.includes('thermo') || t.includes('heat') || t.includes('flame')) return Flame;
+  if (t.includes('fluid') || t.includes('water') || t.includes('hydraulic')) return Droplet;
+  if (t.includes('sensor') || t.includes('instrument') || t.includes('thermo')) return Thermometer;
+  if (t.includes('control') || t.includes('loop') || t.includes('signal') || t.includes('wave')) return Activity;
+  if (t.includes('robot') || t.includes('ai') || t.includes('autom')) return Bot;
+  if (t.includes('plc') || t.includes('hmi') || t.includes('screen') || t.includes('ui')) return Monitor;
+  if (t.includes('industry') || t.includes('factory') || t.includes('manufactur')) return Building;
+  if (t.includes('digital') || t.includes('electron') || t.includes('embed') || t.includes('circuit') || t.includes('chip')) return Cpu;
+  if (t.includes('mech') || t.includes('gear') || t.includes('design')) return Settings;
 
-const groupColors = ['#1d72fe', '#10b981', '#8b5cf6', '#f97316', '#ec4899', '#06b6d4'];
+  // Fallback icon list by index
+  const pool = [Calculator, Settings, Flame, Droplet, Cpu, Thermometer, Activity, Bot, Monitor, Building];
+  return pool[index % pool.length];
+};
+
+/**
+ * Pick color for score progress bar
+ */
+const getScoreColor = (pct) => {
+  if (pct >= 80) return '#10b981'; // Green
+  if (pct >= 70) return '#f59e0b'; // Amber / Yellow
+  return '#f97316'; // Orange
+};
 
 export default function Dashboard({
-  groups,
-  tests,
-  totalTestsCount,
-  publishedCount,
-  draftCount,
-  activeTestsCount,
+  groups = [],
+  tests = [],
+  totalTestsCount = 0,
+  publishedCount = 0,
+  draftCount = 0,
+  activeTestsCount = 0,
+  totalStudentsCount = 0,
   onManageGroups,
   onCreateTest,
   onViewSubmissions
 }) {
+  const displayGroups = Array.isArray(groups) ? groups : [];
+  
+  // Calculate a mock or derived average score for the dashboard KPI
+  const overallAverageScore = tests.length > 0 
+    ? Math.round(tests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / tests.length)
+    : 0;
+
+  // Total students from props
+  const totalStudents = totalStudentsCount;
+
   return (
     <div className="dashboard-content">
-      {/* Row 1: 4 KPI Cards */}
-      <div className="kpi-row">
-        <div className="kpi-card">
-          <div className="kpi-icon-box kpi-icon-blue">
-            <FileText size={24} />
-          </div>
-        <div className="kpi-info">
-          <span className="kpi-val">{totalTestsCount}</span>
-          <span className="kpi-label">Total Tests</span>
-          <span className="kpi-sub">{publishedCount} Published &nbsp;|&nbsp; {draftCount} Drafts</span>
-        </div>
-      </div>
-
-      <div className="kpi-card">
-        <div className="kpi-icon-box kpi-icon-green">
-          <Users size={24} />
-        </div>
-        <div className="kpi-info">
-          <span className="kpi-val">0</span>
-          <span className="kpi-label">Total Students</span>
-          <span className="kpi-sub">Across All Groups</span>
-        </div>
-      </div>
-
-      <div className="kpi-card">
-        <div className="kpi-icon-box kpi-icon-purple">
-          <CheckCircle2 size={24} />
-        </div>
-        <div className="kpi-info">
-          <span className="kpi-val">{activeTestsCount}</span>
-          <span className="kpi-label">Active Tests</span>
-          <span className="kpi-sub">Currently Running</span>
-        </div>
-      </div>
-
-      <div className="kpi-card">
-        <div className="kpi-icon-box kpi-icon-orange">
-          <BarChart2 size={24} />
-        </div>
-        <div className="kpi-info">
-          <span className="kpi-val">0%</span>
-          <span className="kpi-label">Average Score</span>
-          <span className="kpi-sub">All Tests</span>
-        </div>
-      </div>
-    </div>
-
-    {/* Row 2: Performance Bar Chart & Group-wise Circular Rings */}
-    <div className="grid-2col">
-      {/* Left: Bar Chart */}
-      <div className="chart-card">
-        <div className="chart-card-header">
-          <div className="chart-card-title">
-            <BarChart2 size={18} color="#1d72fe" />
-            <span>Test Performance Overview</span>
-          </div>
-          <div className="select-pill" style={{ padding: '0.25rem 0.55rem', fontSize: '0.74rem' }}>
-            <span>Last 6 Months</span>
-            <ChevronDown size={12} />
-          </div>
-        </div>
-
-        <div className="bar-chart-container">
-          {[
-            { month: 'Apr', value: 0 },
-            { month: 'May', value: 0 },
-            { month: 'Jun', value: 0 },
-            { month: 'Jul', value: 0 },
-            { month: 'Aug', value: 0 },
-            { month: 'Sep', value: 0 }
-          ].map(({ month, value }) => (
-            <div key={month} className="bar-col">
-              <span className="bar-value">{value}%</span>
-              <div className="bar-fill-blue" style={{ height: `${value}%` }} />
-              <span className="bar-month">{month}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Right: Dynamic Group-wise Circular Rings */}
-      <div className="chart-card">
-        <div className="chart-card-header">
-          <div className="chart-card-title">
-            <Clock size={18} color="#1d72fe" />
-            <span>Group-wise Performance ({groups.length} Groups)</span>
-          </div>
-          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+      {/* Top Header / Action Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        marginBottom: '1.5rem',
+        flexWrap: 'wrap',
+        gap: '1rem'
+      }}>
+        <div />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <button
-              className="select-pill"
-              onClick={onManageGroups}
-              style={{ background: '#eff6ff', color: '#1d72fe', borderColor: '#bfdbfe' }}
+              onClick={onCreateTest}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: '#1d72fe',
+                border: 'none',
+                color: '#ffffff',
+                padding: '0.65rem 1.25rem',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 2px 6px rgba(29, 114, 254, 0.2)'
+              }}
             >
-              <SettingsIcon size={12} />
+              <Plus size={16} />
+              <span>Create New Test</span>
+            </button>
+            <button
+              onClick={onManageGroups}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: '#ffffff',
+                border: '1px solid #cbd5e1',
+                color: '#475569',
+                padding: '0.65rem 1.25rem',
+                borderRadius: '8px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              <SettingsIcon size={16} />
               <span>Manage Groups</span>
             </button>
-            <div className="select-pill" style={{ padding: '0.25rem 0.55rem', fontSize: '0.74rem' }}>
-              <span>Percentage</span>
-              <ChevronDown size={12} />
+        </div>
+      </div>
+
+      {/* Row 1: Top 4 KPI Metrics Cards (Matching Student Screenshot) */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: '1.25rem',
+        marginBottom: '1.75rem'
+      }}>
+        {/* Metric 1: Average Score (Purple Theme) */}
+        <div style={{
+          background: '#faf5ff',
+          borderRadius: '16px',
+          padding: '1.35rem 1.5rem',
+          border: '1px solid #e9d5ff',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.15rem'
+        }}>
+          <div style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '12px',
+            background: '#8b5cf6',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <BarChart2 size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
+              {overallAverageScore}%
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#6d28d9', marginTop: '0.2rem', fontWeight: 600 }}>
+              Average Score
             </div>
           </div>
         </div>
 
-        <div className="rings-container" style={{ flexWrap: 'wrap', gap: '1rem' }}>
-          {groups.length === 0 ? (
-            <div style={{ color: '#9ca3af', fontSize: '0.85rem', padding: '1rem' }}>No groups found.</div>
-          ) : groups.map((group, idx) => {
-            const ringColor = group.color || groupColors[idx % groupColors.length];
-            const avg = 0; // Pure live data calculation should go here
-            const groupTestsCount = tests.filter(t => t.group_id === group.id).length;
+        {/* Metric 2: Total Tests (Blue Theme) */}
+        <div style={{
+          background: '#eff6ff',
+          borderRadius: '16px',
+          padding: '1.35rem 1.5rem',
+          border: '1px solid #bfdbfe',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.15rem'
+        }}>
+          <div style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '12px',
+            background: '#1d72fe',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <FileText size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
+              {totalTestsCount}
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#1d4ed8', marginTop: '0.2rem', fontWeight: 600 }}>
+              Total Tests
+            </div>
+          </div>
+        </div>
 
-            return (
-              <div key={group.id} className="ring-item" style={{ minWidth: '110px' }}>
-                <StaffCircleRing percentage={avg} color={ringColor} />
-                <div className="ring-label">Group {group.group_number || idx + 1}</div>
-                <div className="ring-sub" title={group.name} style={{ maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {group.name}
-                </div>
-                <div className="ring-tests">({groupTestsCount} Tests)</div>
-              </div>
-            );
-          })}
+        {/* Metric 3: Active Tests (Orange Theme) */}
+        <div style={{
+          background: '#fff7ed',
+          borderRadius: '16px',
+          padding: '1.35rem 1.5rem',
+          border: '1px solid #fed7aa',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.15rem'
+        }}>
+          <div style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '12px',
+            background: '#f59e0b',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <Hourglass size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
+              {activeTestsCount}
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#b45309', marginTop: '0.2rem', fontWeight: 600 }}>
+              Active Tests
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 4: Published Tests (Green Theme) */}
+        <div style={{
+          background: '#f0fdf4',
+          borderRadius: '16px',
+          padding: '1.35rem 1.5rem',
+          border: '1px solid #bbf7d0',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.15rem'
+        }}>
+          <div style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '12px',
+            background: '#10b981',
+            color: '#ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}>
+            <Users size={22} />
+          </div>
+          <div>
+            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
+              {totalStudents}
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#047857', marginTop: '0.2rem', fontWeight: 600 }}>
+              Total Students
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    {/* Row 3: Recent Tests Table & Recent Activity */}
-    <div className="grid-2col">
-      {/* Left: Recent Tests Table */}
-      <div className="table-card">
-        <div className="table-header-action">
-          <div className="chart-card-title">
-            <FileText size={18} color="#1d72fe" />
-            <span>Recent Tests ({tests.length || 5})</span>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+      {/* Row 2: Dynamic Subject Groups (Matching Student Screenshot Layout & Color Themes) */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+        gap: '1.25rem'
+      }}>
+        {displayGroups.length === 0 ? (
+          <div style={{
+            gridColumn: '1 / -1',
+            background: '#ffffff',
+            borderRadius: '16px',
+            border: '1px dashed #cbd5e1',
+            padding: '3rem 2rem',
+            textAlign: 'center',
+            color: '#64748b'
+          }}>
+            <BookOpen size={48} color="#cbd5e1" style={{ marginBottom: '1rem' }} />
+            <h3 style={{ fontSize: '1.25rem', color: '#1e293b', marginBottom: '0.5rem' }}>No Groups Managed Yet</h3>
+            <p>You have not created or managed any subject groups.</p>
             <button
-              className="select-pill"
-              onClick={onCreateTest}
-              style={{ fontSize: '0.74rem', padding: '0.25rem 0.5rem' }}
+              onClick={onManageGroups}
+              style={{
+                marginTop: '1rem',
+                background: '#1d72fe',
+                color: '#fff',
+                border: 'none',
+                padding: '0.5rem 1rem',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
             >
-              <Plus size={13} />
-              New Test
+              Manage Groups
             </button>
-            <a href="#viewall" className="view-all-link">View All</a>
           </div>
-        </div>
+        ) : displayGroups.map((group, idx) => {
+          const HeaderIcon = BookOpen;
+          const groupName = group.name || `Group ${group.group_number || idx + 1}`;
+          const groupSubtitle = group.category || 'Subject Group';
+          const groupThemeColor = group.color || '#1d72fe';
+          const groupBg = groupThemeColor + '10'; // 10% opacity tint
+          const groupBorder = groupThemeColor + '30'; // 30% opacity tint
 
-        <div style={{ overflowX: 'auto' }}>
-          <table className="custom-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Test Title</th>
-                <th>Group</th>
-                <th>Date & Time</th>
-                <th>Students</th>
-                <th>Avg. Score</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tests.length === 0 ? (
-                <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
-                    No recent tests found.
-                  </td>
-                </tr>
-              ) : (
-                tests.slice(0, 6).map((test, idx) => (
-                  <tr key={test.id || idx}>
-                    <td>{idx + 1}</td>
-                    <td style={{ fontWeight: 600 }}>{test.title}</td>
-                    <td>
-                      <span className="group-badge-blue">
-                        {test.groups ? `Group ${test.groups.group_number}: ${test.groups.name}` : (test.group_name || 'Group')}
-                      </span>
-                    </td>
-                    <td style={{ color: '#6b7280', fontSize: '0.74rem' }}>
-                      {test.scheduled_date ? new Date(test.scheduled_date).toLocaleDateString() : (test.date || 'Unknown')}
-                    </td>
-                    <td>{test.students || 0}</td>
-                    <td style={{ fontWeight: 700 }}>{test.avg || '0%'}</td>
-                    <td>
-                      <span className={test.status === 'published' ? 'status-pill-published' : 'status-pill-completed'}>
-                        {test.status === 'published' ? 'Published' : (test.status || 'Draft')}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="btn-table-view"
-                        onClick={() => onViewSubmissions(test)}
-                        title="View student marks & anti-cheating report"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+          // Find tests belonging to this group
+          const groupTests = tests.filter(t => t.group_id === group.id);
+          
+          // Calculate dynamic group average
+          let groupPct = 0;
+          if (groupTests.length > 0) {
+            groupPct = Math.round(groupTests.reduce((a, t) => a + (Number(t.avg) || 0), 0) / groupTests.length);
+          }
 
-      {/* Right: Recent Activity Feed */}
-      <div className="table-card">
-        <div className="table-header-action">
-          <div className="chart-card-title">
-            <Clock size={18} color="#1d72fe" />
-            <span>Recent Activity</span>
-          </div>
-          <a href="#viewall" className="view-all-link">View All</a>
-        </div>
+          // Build test list for the group
+          const testItems = groupTests.map(gt => {
+            return {
+              id: gt.id,
+              title: gt.title,
+              score: Number(gt.avg) || 0,
+              testData: gt
+            };
+          });
 
-        <div className="activity-feed">
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem' }}>
-            No recent activity recorded.
-          </div>
-        </div>
+          return (
+            <div
+              key={group.id || idx}
+              style={{
+                background: groupBg,
+                borderRadius: '16px',
+                border: `1.5px solid ${groupBorder}`,
+                padding: '1.35rem 1.5rem',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                transition: 'transform 0.2s, box-shadow 0.2s'
+              }}
+            >
+              {/* Group Card Header */}
+              <div>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: '1.15rem',
+                  borderBottom: '1px solid #f1f5f9',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      borderRadius: '50%',
+                      background: groupThemeColor,
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: `0 4px 10px ${groupThemeColor}30`
+                    }}>
+                      <HeaderIcon size={22} />
+                    </div>
+                    <div>
+                      <h3 style={{
+                        fontSize: '1.1rem',
+                        fontWeight: 800,
+                        color: '#0f172a',
+                        margin: 0,
+                        lineHeight: 1.2
+                      }}>
+                        {groupName}
+                      </h3>
+                      <div style={{
+                        fontSize: '0.8rem',
+                        color: '#64748b',
+                        fontWeight: 500,
+                        marginTop: '0.15rem'
+                      }}>
+                        {groupSubtitle}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Circular Score Ring */}
+                  <CircleRing
+                    percentage={groupPct}
+                    color={groupThemeColor}
+                    size={56}
+                    strokeWidth={5}
+                  />
+                </div>
+
+                {/* Test Items List with Progress Bars & Percentage Badges */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {testItems.length === 0 ? (
+                    <div style={{
+                      padding: '1.5rem 1rem',
+                      textAlign: 'center',
+                      background: 'rgba(255, 255, 255, 0.6)',
+                      borderRadius: '12px',
+                      border: '1px dashed rgba(0, 0, 0, 0.08)',
+                      color: '#64748b'
+                    }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
+                        No Active Tests
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                        Create a test to see it here
+                      </div>
+                    </div>
+                  ) : (
+                    testItems.slice(0, 4).map((testItem, tIdx) => {
+                      const TestIcon = getTestIcon(testItem.title, tIdx);
+                      const score = testItem.score;
+                      const barColor = getScoreColor(score);
+
+                      return (
+                        <div key={testItem.id || tIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
+                              <TestIcon size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                              <span style={{
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                                color: '#1e293b',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {testItem.title}
+                              </span>
+                            </div>
+                            <span style={{
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              color: '#1e293b',
+                              flexShrink: 0
+                            }}>
+                              {score}%
+                            </span>
+                          </div>
+
+                          {/* Rounded Progress Bar */}
+                          <div style={{
+                            width: '100%',
+                            height: '6px',
+                            background: '#e2e8f0',
+                            borderRadius: '10px',
+                            overflow: 'hidden',
+                            marginTop: '2px'
+                          }}>
+                            <div style={{
+                              width: `${Math.min(score, 100)}%`,
+                              height: '100%',
+                              background: barColor,
+                              borderRadius: '10px',
+                              transition: 'width 0.8s ease-in-out'
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Card Footer Quick Link */}
+              <div style={{
+                marginTop: '1.25rem',
+                paddingTop: '0.85rem',
+                borderTop: '1px solid #f8fafc',
+                display: 'flex',
+                justifyContent: 'flex-end'
+              }}>
+                <button
+                  onClick={() => onCreateTest()}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: groupThemeColor,
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.3rem',
+                    padding: '2px 4px'
+                  }}
+                >
+                  <span>Add Test</span>
+                  <Plus size={13} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
-  </div>
   );
 }

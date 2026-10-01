@@ -201,7 +201,7 @@ export const api = {
         group_number: nextNum,
         name: groupData.name || `Group ${nextNum}`,
         category: groupData.category || 'Specialization Subjects',
-        department: groupData.department || 'Mechatronics Engineering',
+        department: groupData.department || 'Computer Science and Engineering',
         color: groupData.color || defaultColors[(nextNum - 1) % defaultColors.length]
       };
     }

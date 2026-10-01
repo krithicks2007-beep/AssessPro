@@ -40,9 +40,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const parsed = parseBitEmail(email);
 
   const studentName = studentProfile?.name || user?.user_metadata?.full_name || parsed?.formattedName || 'Student';
-  const studentDept = studentProfile?.department || parsed?.department || 'Computer Science and Engineering';
-  const studentYear = studentProfile?.year || parsed?.academicYear || 'II Year';
-  const studentRegNo = studentProfile?.reg_no || parsed?.predictedRegNo || '7376251CS101';
+  const studentDept = studentProfile?.department || parsed?.department || 'Not specified';
+  const studentYear = studentProfile?.year || parsed?.academicYear || 'Not specified';
+  const studentRegNo = studentProfile?.reg_no || parsed?.predictedRegNo || 'Not specified';
   const studentSection = studentProfile?.section || 'A';
   const studentDob = studentProfile?.dob || 'Not specified';
   const studentPhone = studentProfile?.phone || 'Not specified';

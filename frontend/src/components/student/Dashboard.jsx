@@ -58,11 +58,11 @@ export default function Dashboard({
   tests = [],
   studentSubmissions = [],
   studentName = 'Student',
-  studentDept = 'Mechatronics Engineering',
-  studentYear = 'III Year',
-  overallScore = 78,
-  testsCompletedCount = 9,
-  pendingCount = 3,
+  studentDept = '',
+  studentYear = '',
+  overallScore = 0,
+  testsCompletedCount = 0,
+  pendingCount = 0,
   assignedStaff = null,
   onNavigateToTests
 }) {

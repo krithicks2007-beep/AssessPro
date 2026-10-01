@@ -13,6 +13,8 @@ import {
   CheckCircle,
   Trash2
 } from 'lucide-react';
+import StaffDirectory from './StaffDirectory';
+import StudentDirectory from './StudentDirectory';
 import api from '../../api';
 
 export default function AdminDashboard({ user, onSignOut }) {
@@ -80,8 +82,12 @@ export default function AdminDashboard({ user, onSignOut }) {
     loadUsers();
     loadStaffRequests();
     loadTests();
-    const interval = setInterval(loadStaffRequests, 3500);
-    return () => clearInterval(interval);
+    const staffInterval = setInterval(loadStaffRequests, 3500);
+    const usersInterval = setInterval(loadUsers, 10000); // Live poll presence every 10s
+    return () => {
+      clearInterval(staffInterval);
+      clearInterval(usersInterval);
+    };
   }, [loadUsers, loadStaffRequests, loadTests]);
 
   const handleApproveStaff = async (id, email) => {
@@ -109,35 +115,13 @@ export default function AdminDashboard({ user, onSignOut }) {
     }
   };
 
-  const handleDeleteUser = async (id, email, name) => {
-    if (email === 'krithickrajs.cs25@bitsathy.ac.in') {
-      alert('The Super Admin account cannot be deleted.');
-      return;
-    }
-    if (!window.confirm(`Are you sure you want to completely delete ${name || email}? This will wipe their profile, auth record, and test submissions from the database.`)) {
-      return;
-    }
-    try {
-      await api.deleteUserCompletely(id, email);
-      setActionMsg(`Successfully deleted ${email} from all tables.`);
-      setTimeout(() => setActionMsg(''), 4000);
-      await loadUsers();
-      await loadStaffRequests();
-    } catch (err) {
-      alert('Failed to delete user: ' + err.message);
-    }
-  };
-
-  const filteredUsers = filterRole === 'all' 
-    ? usersList 
-    : usersList.filter(u => u.role === filterRole);
-
   const pendingRequests = staffRequests.filter(r => r.status === 'pending');
   const adminName = user?.user_metadata?.full_name || 'System Administrator';
 
   const navItems = [
     { label: 'Dashboard', icon: Home },
-    { label: 'User Directory', icon: Users },
+    { label: 'Staff Directory', icon: Users },
+    { label: 'Student Directory', icon: Users },
     { label: 'Staff Requests', icon: UserPlus },
     { label: 'Assessments & Results', icon: ShieldCheck },
     { label: 'Settings', icon: Settings },
@@ -429,109 +413,12 @@ export default function AdminDashboard({ user, onSignOut }) {
               </div>
             )}
 
-            {activeTab === 'User Directory' && (
-              <div className="table-card">
-                <div className="table-header-action" style={{ flexWrap: 'wrap', gap: '1rem' }}>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
-                      Authorized Institutional Users
-                    </h3>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, marginTop: '0.2rem' }}>
-                      Users authenticated through the configured Supabase providers.
-                    </p>
-                  </div>
-                  
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button 
-                      className={`btn-table-view`}
-                      style={filterRole === 'all' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                      onClick={() => setFilterRole('all')}
-                    >
-                      All
-                    </button>
-                    <button 
-                      className={`btn-table-view`}
-                      style={filterRole === 'student' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                      onClick={() => setFilterRole('student')}
-                    >
-                      Students
-                    </button>
-                    <button 
-                      className={`btn-table-view`}
-                      style={filterRole === 'staff' ? { background: '#eff6ff', color: '#2563eb', borderColor: '#bfdbfe' } : {}}
-                      onClick={() => setFilterRole('staff')}
-                    >
-                      Staff
-                    </button>
-                  </div>
-                </div>
+            {activeTab === 'Staff Directory' && (
+              <StaffDirectory allUsers={usersList} />
+            )}
 
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="custom-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Institutional Email</th>
-                        <th>Role</th>
-                        <th>Status</th>
-                        <th>Activity</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUsers.map((u) => (
-                        <tr key={u.id}>
-                          <td style={{ fontWeight: 600 }}>{u.name}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)' }}>{u.email}</td>
-                          <td>
-                            <span className={u.role === 'admin' ? 'group-badge-purple' : (u.role === 'staff' ? 'group-badge-blue' : 'group-badge-green')}
-                                  style={{ textTransform: 'capitalize' }}>
-                              {u.role}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{ 
-                              color: u.status === 'In Exam' ? '#f59e0b' : (u.isOnline ? '#059669' : '#64748b'), 
-                              display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.8rem' 
-                            }}>
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: u.status === 'In Exam' ? '#f59e0b' : (u.isOnline ? '#10b981' : '#94a3b8') }} />
-                              {u.status}
-                            </span>
-                          </td>
-                          <td style={{ color: '#64748b' }}>{u.lastLogin}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            {u.email !== 'krithickrajs.cs25@bitsathy.ac.in' && (
-                              <button
-                                onClick={() => handleDeleteUser(u.id, u.email, u.name)}
-                                title="Delete User Completely"
-                                style={{
-                                  background: '#fef2f2',
-                                  color: '#dc2626',
-                                  border: '1px solid #fecaca',
-                                  borderRadius: '6px',
-                                  padding: '0.35rem 0.65rem',
-                                  fontSize: '0.74rem',
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '0.35rem',
-                                  transition: 'all 0.15s'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = '#dc2626'; e.currentTarget.style.color = '#fff'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; }}
-                              >
-                                <Trash2 size={13} />
-                                Delete
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            {activeTab === 'Student Directory' && (
+              <StudentDirectory allUsers={usersList} />
             )}
 
             {activeTab === 'Assessments & Results' && (

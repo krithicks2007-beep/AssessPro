@@ -83,13 +83,31 @@ npm run dev
 | `GET` | `/api/admin/users` | List institutional users for Admin Console |
 | `PUT` | `/api/admin/users/:id/role` | Update user role (`student`, `staff`, `admin`) |
 
-## Vercel Deployment
+## 🌍 Deployment Strategy (Vercel + Render + Supabase)
 
-Deploy this repository as two Vercel projects:
+This application uses a fully decoupled architecture optimized for production:
 
-1. Create a backend project with root directory `backend`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, optional `ALLOWED_DOMAIN` for default role classification, and `ALLOWED_ORIGINS` (the deployed frontend URL plus local development URLs). Use `backend/vercel.json` and verify `/api/health` on the deployed backend URL.
-2. Create a frontend project with root directory `frontend`. Set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `VITE_ALLOWED_DOMAIN` for default role classification, and `VITE_API_URL` to the backend deployment URL. Use `frontend/vercel.json`.
-3. Apply `backend/schema.sql`, the required additive migrations, and `backend/fix_rls.sql` in Supabase. Never use the old allow-all policies.
-4. Configure the Supabase site URL, Google OAuth callback, and allowed redirect URLs with the deployed frontend URL.
+1. **Database (Supabase):**
+   - Create a new project in Supabase.
+   - Run the SQL files from the `backend/` directory in the SQL Editor in this exact order:
+     1. `01_schema_init.sql`
+     2. `02_migrations.sql`
+     3. `03_rls_policies.sql`
+   - Configure Authentication: Enable Google OAuth and set your callback URLs.
 
-The root `vercel.json` remains for a combined deployment option, but the two-project setup is easier to operate and makes the frontend/backend environment boundaries explicit.
+2. **Backend (Render):**
+   - Deploy the `backend` directory as a Web Service on Render (Node.js environment).
+   - Set the Build Command: `npm install`
+   - Set the Start Command: `npm start`
+   - Set Environment Variables:
+     - `SUPABASE_URL`
+     - `SUPABASE_SERVICE_ROLE_KEY`
+     - `ALLOWED_ORIGINS` (Set to your future Vercel frontend URL)
+
+3. **Frontend (Vercel):**
+   - Deploy the `frontend` directory as a Vite/React project on Vercel.
+   - Set Environment Variables:
+     - `VITE_API_URL` (Set to your Render backend URL, e.g., `https://your-app.onrender.com/api`)
+     - `VITE_SUPABASE_URL`
+     - `VITE_SUPABASE_ANON_KEY`
+   - Note: Update your Supabase allowed redirect URIs to include the generated Vercel domain.

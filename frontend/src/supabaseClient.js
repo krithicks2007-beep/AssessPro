@@ -327,7 +327,7 @@ export const saveStudentProfileDirect = async (supabase, profileData) => {
         name: profileData.name || cleanEmail.split('@')[0],
         mailid: cleanEmail,
         UserType: 'student'
-      });
+      }, { onConflict: 'id' });
 
       // 2. Upsert public.students record
       const studentPayload = {
