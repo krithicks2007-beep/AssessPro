@@ -616,10 +616,23 @@ export const api = {
         if (Array.isArray(data)) list = data;
       }
     } catch (err) {
-      console.warn('Fallback submissions note:', err.message);
+      console.warn('Backend getTestSubmissions failed, trying fallback:', err.message);
     }
 
-
+    if (list.length === 0) {
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase) {
+          const { data, error } = await supabase
+            .from('test_submissions')
+            .select('*')
+            .eq('test_id', testId);
+          if (!error && Array.isArray(data)) {
+            list = data;
+          }
+        }
+      } catch (e) {}
+    }
 
     // Deduplicate by student email so each student only appears once per test
     const subMap = new Map();
