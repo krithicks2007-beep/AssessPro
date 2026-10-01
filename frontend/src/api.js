@@ -572,12 +572,10 @@ export const api = {
       if (!supabase) throw new Error('Submission could not be saved: Backend unreachable');
 
       const payload = {
-        id: submissionData.id || `sub-${Date.now()}`,
         test_id: testId,
         student_email: submissionData.studentEmail || submissionData.student_email,
         student_name: submissionData.studentName || submissionData.student_name,
         score: submissionData.score || 0,
-        percentage: submissionData.percentage || 0,
         correct_count: submissionData.correct_count || 0,
         total_questions: submissionData.total_questions || 0,
         max_score: submissionData.max_score || 0,
@@ -587,6 +585,10 @@ export const api = {
         status: submissionData.status || 'completed',
         submitted_at: submissionData.submitted_at || new Date().toISOString()
       };
+      
+      if (submissionData.id && submissionData.id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+        payload.id = submissionData.id;
+      }
 
       const { data, error } = await supabase
         .from('test_submissions')
