@@ -360,8 +360,34 @@ export const api = {
           .select('*, groups(name, group_number, color)')
           .order('created_at', { ascending: false });
         if (!error && Array.isArray(data)) {
+          let avgMap = {};
+          try {
+            const testIds = data.map(t => t.id);
+            if (testIds.length > 0) {
+              const { data: subsData } = await supabase
+                .from('test_submissions')
+                .select('test_id, score, max_score')
+                .in('test_id', testIds);
+              if (subsData) {
+                const aggs = {};
+                subsData.forEach(s => {
+                   if (!aggs[s.test_id]) aggs[s.test_id] = { totalPct: 0, count: 0 };
+                   const pct = s.max_score > 0 ? (s.score / s.max_score) * 100 : 0;
+                   aggs[s.test_id].totalPct += pct;
+                   aggs[s.test_id].count++;
+                });
+                for (const tId in aggs) {
+                   avgMap[tId] = aggs[tId].count > 0 ? Math.round(aggs[tId].totalPct / aggs[tId].count) : 0;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Fallback avg calculation note:', e.message);
+          }
+
           let list = data.map(t => ({
             ...t,
+            avg: avgMap[t.id] || 0,
             questions: Array.isArray(t.questions) ? t.questions : [],
             assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
             total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
