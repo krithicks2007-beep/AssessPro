@@ -58,15 +58,48 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [gData, tData, sData, staffInfo] = await Promise.all([
-        api.getGroups(),
-        api.getTests(),
-        api.getStudentSubmissions(email),
-        api.getAssignedStaff(email)
-      ]);
-      setGroups(gData || []);
-      setTests(tData || []);
+      const staffInfo = await api.getAssignedStaff(email).catch(() => null);
       setAssignedStaff(staffInfo || null);
+
+      const assignedStaffId = staffInfo?.assigned_staff_id || staffInfo?.staffId || '';
+
+      // Fetch ALL groups and ALL tests
+      const [allGroups, allTestsData, sData] = await Promise.all([
+        api.getGroups({ all: true }), 
+        api.getTests(),
+        api.getStudentSubmissions(email)
+      ]);
+      
+      const safeTests = Array.isArray(allTestsData) ? allTestsData : [];
+      
+      // Determine which tests are effective for this student
+      const effectiveTestsFiltered = safeTests.filter(t => {
+        if (t.status === 'draft') {
+          return false;
+        }
+
+        if (Array.isArray(t.assigned_students) && t.assigned_students.length > 0) {
+          const cleanEmail = (email || '').toLowerCase().trim();
+          return t.assigned_students.some(e => {
+            const val = typeof e === 'string' ? e : e?.email || '';
+            return val.toLowerCase().trim() === cleanEmail;
+          });
+        }
+        return true;
+      });
+
+      // Find all group IDs that are associated with the effective tests
+      const testGroupIds = new Set(effectiveTestsFiltered.map(t => t.group_id).filter(Boolean));
+
+      // Filter groups: keep if they belong to the student's assigned staff OR if the student has a test in them
+      const safeGroups = Array.isArray(allGroups) ? allGroups : [];
+      const visibleGroups = safeGroups.filter(g => 
+        (assignedStaffId && String(g.staff_id) === String(assignedStaffId)) || 
+        testGroupIds.has(g.id)
+      );
+
+      setGroups(visibleGroups);
+      setTests(allTestsData || []);
       setStudentSubmissions(Array.isArray(sData) ? sData : []);
     } catch (err) {
       console.error('Error fetching student dashboard data:', err);
@@ -120,10 +153,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
     : 0;
 
-  // Filter tests:
-  // 1. Draft tests are hidden from students
-  // 2. If test has a specific assigned_students list, ONLY visible if student is included
-  // 3. Otherwise (universal test), visible to all students
+  // Filter tests (same logic as inside loadData, kept here for dynamic render consistency)
   const effectiveTests = safeTests.filter(t => {
     if (t.status === 'draft') {
       return false;

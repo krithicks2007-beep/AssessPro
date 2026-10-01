@@ -73,13 +73,16 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   const loadData = async () => {
     try {
       const [fetchedGroups, fetchedTests, fetchedProfile, fetchedStudents] = await Promise.all([
-        api.getGroups(),
+        // Pass staffId so backend returns ONLY this staff member's groups
+        api.getGroups({ staffId: user?.id }),
         api.getTests({ staffEmail: user?.email, staffId: user?.id }),
         api.getStaffProfile(user?.email),
-        api.getAllStudents()
+        // Only count students assigned to THIS staff member
+        api.getAllStudents({ assigned_to: user?.id })
       ]);
       setGroups(fetchedGroups || []);
       setTests(fetchedTests || []);
+      // Count only students assigned to this staff member
       setTotalStudentsCount(Array.isArray(fetchedStudents) ? fetchedStudents.length : 0);
 
       if (fetchedProfile) {
@@ -122,6 +125,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
     setActionSuccess('');
     setTimeout(() => setActionError(''), 4000);
   };
+
+  const [isViewingStudent, setIsViewingStudent] = useState(false);
 
   // Group Handlers
   const handleStartRename = (group) => {
@@ -341,7 +346,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       {/* Main Panel */}
       <main className="main-wrapper">
         {/* Top Header */}
-        {!selectedDraftTest && (
+        {!selectedDraftTest && !isViewingStudent && (
           <header className="top-header">
             <div className="header-left">
               <h1 className="header-title">Faculty Dashboard</h1>
@@ -411,6 +416,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             facultyId={user?.id}
             allGroups={groups}
             allTests={tests}
+            onViewingStudentChange={setIsViewingStudent}
           />
         ) : activeTab === 'Tests' ? (
           <Tests

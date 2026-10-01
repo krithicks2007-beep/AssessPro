@@ -146,17 +146,17 @@ export default function Dashboard({
         <div style={{
           background: '#faf5ff',
           borderRadius: '16px',
-          padding: '1.35rem 1.5rem',
+          padding: '1.75rem 1.75rem',
           border: '1px solid #e9d5ff',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.15rem'
+          gap: '1.25rem'
         }}>
           <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '12px',
+            width: '54px',
+            height: '54px',
+            borderRadius: '14px',
             background: '#8b5cf6',
             color: '#ffffff',
             display: 'flex',
@@ -164,13 +164,13 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <BarChart2 size={22} />
+            <BarChart2 size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
               {overallAverageScore}%
             </div>
-            <div style={{ fontSize: '0.82rem', color: '#6d28d9', marginTop: '0.2rem', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.9rem', color: '#6d28d9', marginTop: '0.3rem', fontWeight: 600 }}>
               Average Score
             </div>
           </div>
@@ -180,17 +180,17 @@ export default function Dashboard({
         <div style={{
           background: '#eff6ff',
           borderRadius: '16px',
-          padding: '1.35rem 1.5rem',
+          padding: '1.75rem 1.75rem',
           border: '1px solid #bfdbfe',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.15rem'
+          gap: '1.25rem'
         }}>
           <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '12px',
+            width: '54px',
+            height: '54px',
+            borderRadius: '14px',
             background: '#1d72fe',
             color: '#ffffff',
             display: 'flex',
@@ -198,13 +198,13 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <FileText size={22} />
+            <FileText size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
               {totalTestsCount}
             </div>
-            <div style={{ fontSize: '0.82rem', color: '#1d4ed8', marginTop: '0.2rem', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.9rem', color: '#1d4ed8', marginTop: '0.3rem', fontWeight: 600 }}>
               Total Tests
             </div>
           </div>
@@ -214,17 +214,17 @@ export default function Dashboard({
         <div style={{
           background: '#fff7ed',
           borderRadius: '16px',
-          padding: '1.35rem 1.5rem',
+          padding: '1.75rem 1.75rem',
           border: '1px solid #fed7aa',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.15rem'
+          gap: '1.25rem'
         }}>
           <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '12px',
+            width: '54px',
+            height: '54px',
+            borderRadius: '14px',
             background: '#f59e0b',
             color: '#ffffff',
             display: 'flex',
@@ -232,13 +232,13 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Hourglass size={22} />
+            <Hourglass size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
               {activeTestsCount}
             </div>
-            <div style={{ fontSize: '0.82rem', color: '#b45309', marginTop: '0.2rem', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.9rem', color: '#b45309', marginTop: '0.3rem', fontWeight: 600 }}>
               Active Tests
             </div>
           </div>
@@ -248,17 +248,17 @@ export default function Dashboard({
         <div style={{
           background: '#f0fdf4',
           borderRadius: '16px',
-          padding: '1.35rem 1.5rem',
+          padding: '1.75rem 1.75rem',
           border: '1px solid #bbf7d0',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.15rem'
+          gap: '1.25rem'
         }}>
           <div style={{
-            width: '46px',
-            height: '46px',
-            borderRadius: '12px',
+            width: '54px',
+            height: '54px',
+            borderRadius: '14px',
             background: '#10b981',
             color: '#ffffff',
             display: 'flex',
@@ -266,13 +266,13 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Users size={22} />
+            <Users size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '1.65rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
               {totalStudents}
             </div>
-            <div style={{ fontSize: '0.82rem', color: '#047857', marginTop: '0.2rem', fontWeight: 600 }}>
+            <div style={{ fontSize: '0.9rem', color: '#047857', marginTop: '0.3rem', fontWeight: 600 }}>
               Total Students
             </div>
           </div>

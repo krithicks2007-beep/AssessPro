@@ -93,7 +93,10 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET 
         name = EXCLUDED.name,
         mailid = EXCLUDED.mailid,
-        "UserType" = EXCLUDED."UserType";
+        "UserType" = CASE 
+            WHEN public.users."UserType" IN ('unassigned') THEN EXCLUDED."UserType"
+            ELSE public.users."UserType"
+        END;
 
     -- Role-specific extension tables: ONLY for verified institutional accounts
     IF detected_type = 'student' AND user_email LIKE '%@bitsathy.ac.in' THEN
@@ -107,14 +110,15 @@ BEGIN
         )
         ON CONFLICT (id) DO NOTHING;
     ELSIF detected_type = 'staff' AND user_email LIKE '%@bitsathy.ac.in' THEN
-        INSERT INTO public.staff (id, staff_code, department, designation)
+        INSERT INTO public.staff (id, staff_code, department, designation, staff_name)
         VALUES (
             NEW.id, 
             'BIT-FAC-' || SUBSTRING(MD5(NEW.id::text) FROM 1 FOR 4), 
-            'Mechatronics Engineering', 
-            'Faculty'
+            'Computer Science and Engineering', 
+            'Faculty',
+            full_name
         )
-        ON CONFLICT (id) DO NOTHING;
+        ON CONFLICT (id) DO UPDATE SET staff_name = EXCLUDED.staff_name;
     END IF;
 
     RETURN NEW;
@@ -288,3 +292,174 @@ UPDATE public.students SET reg_no = NULL WHERE reg_no ~ '^[0-9a-f]{8,}$' AND LEN
 -- Reload PostgREST schema cache (run this last)
 NOTIFY pgrst, 'reload schema';
 
+
+-- =============================================================================
+-- V4 MIGRATION: Per-Staff Group Isolation + Data Pipeline Fixes
+-- Run this block in the Supabase SQL Editor (after all previous migrations)
+-- =============================================================================
+
+-- STEP 1: Add created_by column to groups table
+-- This is the ROOT CAUSE fix: each group now tracks its owner (staff member)
+ALTER TABLE public.groups
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES public.users(id) ON DELETE SET NULL;
+
+-- STEP 2: Index for fast per-staff group queries
+CREATE INDEX IF NOT EXISTS idx_groups_created_by ON public.groups(created_by);
+
+-- STEP 3: Backfill existing orphan groups to the first staff member
+DO $$
+DECLARE
+  first_staff_id UUID;
+BEGIN
+  SELECT id INTO first_staff_id
+  FROM public.users
+  WHERE "UserType" = 'staff'
+  ORDER BY created_at ASC
+  LIMIT 1;
+
+  IF first_staff_id IS NOT NULL THEN
+    UPDATE public.groups
+    SET created_by = first_staff_id
+    WHERE created_by IS NULL;
+  END IF;
+END $$;
+
+-- STEP 4: Drop old overly-permissive group policies
+DROP POLICY IF EXISTS "Allow all on groups" ON public.groups;
+DROP POLICY IF EXISTS "groups_public_read" ON public.groups;
+DROP POLICY IF EXISTS "groups_public_write" ON public.groups;
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.groups;
+DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON public.groups;
+DROP POLICY IF EXISTS "Enable update for users based on email" ON public.groups;
+
+-- STEP 5: Create scoped RLS policies for groups
+-- Staff reads own groups; admins read all; students read their assigned staff's groups
+CREATE POLICY "staff_read_own_groups" ON public.groups
+  FOR SELECT TO authenticated
+  USING (
+    created_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.users u
+      WHERE u.id = auth.uid() AND u."UserType" = 'admin'
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.students s
+      WHERE s.id = auth.uid() AND s.assigned_staff_id = groups.created_by
+    )
+  );
+
+CREATE POLICY "staff_insert_own_groups" ON public.groups
+  FOR INSERT TO authenticated
+  WITH CHECK (created_by = auth.uid());
+
+CREATE POLICY "staff_update_own_groups" ON public.groups
+  FOR UPDATE TO authenticated
+  USING (
+    created_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u."UserType" = 'admin'
+    )
+  );
+
+CREATE POLICY "staff_delete_own_groups" ON public.groups
+  FOR DELETE TO authenticated
+  USING (
+    created_by = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u."UserType" = 'admin'
+    )
+  );
+
+ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
+
+-- STEP 6: Performance indexes for tests and submissions
+CREATE INDEX IF NOT EXISTS idx_tests_created_by ON public.tests(created_by);
+CREATE INDEX IF NOT EXISTS idx_tests_created_by_email ON public.tests(created_by_email);
+CREATE INDEX IF NOT EXISTS idx_tests_status ON public.tests(status);
+CREATE INDEX IF NOT EXISTS idx_submissions_test_id ON public.test_submissions(test_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_student_email ON public.test_submissions(student_email);
+
+-- STEP 7: Reload PostgREST schema cache
+NOTIFY pgrst, 'reload schema';
+
+-- =============================================================================
+-- V5 MIGRATION: Add staff_name to staff table
+-- Run this block in the Supabase SQL Editor
+-- =============================================================================
+
+-- STEP 1: Add staff_name column to staff table
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS staff_name TEXT;
+
+-- STEP 2: Backfill staff_name from the users table
+UPDATE public.staff
+SET staff_name = u.name
+FROM public.users u
+WHERE public.staff.id = u.id;
+
+-- STEP 3: Update the trigger function so future staff get the staff_name added automatically
+CREATE OR REPLACE FUNCTION public.sync_user_to_role_tables()
+RETURNS TRIGGER AS $$
+DECLARE
+    detected_type TEXT;
+    user_email TEXT;
+    full_name TEXT;
+BEGIN
+    user_email := LOWER(TRIM(NEW.email));
+    full_name := COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(user_email, '@', 1));
+
+    -- Determine user type based on email pattern
+    IF user_email = 'krithickrajs.cs25@bitsathy.ac.in' THEN
+        detected_type := 'admin';
+    ELSIF user_email LIKE '%@bitsathy.ac.in' THEN
+        IF user_email ~ '\d' THEN
+            detected_type := 'student';
+        ELSE
+            detected_type := 'staff';
+        END IF;
+    ELSE
+        detected_type := 'unassigned';
+    END IF;
+
+    IF NEW.raw_user_meta_data->>'UserType' IS NOT NULL THEN
+        detected_type := NEW.raw_user_meta_data->>'UserType';
+    END IF;
+
+    INSERT INTO public.users (id, name, mailid, "UserType")
+    VALUES (NEW.id, full_name, NEW.email, detected_type)
+    ON CONFLICT (id) DO UPDATE SET 
+        name = EXCLUDED.name,
+        mailid = EXCLUDED.mailid,
+        "UserType" = CASE 
+            WHEN public.users."UserType" IN ('unassigned') THEN EXCLUDED."UserType"
+            ELSE public.users."UserType"
+        END;
+
+    IF detected_type = 'student' AND user_email LIKE '%@bitsathy.ac.in' THEN
+        INSERT INTO public.students (id, reg_no, department, year, section)
+        VALUES (
+            NEW.id, 
+            '7376' || SUBSTRING(MD5(NEW.id::text) FROM 1 FOR 6), 
+            'Computer Science and Engineering', 
+            'II Year (Second Year)', 
+            'A'
+        )
+        ON CONFLICT (id) DO NOTHING;
+    ELSIF detected_type = 'staff' AND user_email LIKE '%@bitsathy.ac.in' THEN
+        INSERT INTO public.staff (id, staff_code, department, designation, staff_name)
+        VALUES (
+            NEW.id, 
+            'BIT-FAC-' || SUBSTRING(MD5(NEW.id::text) FROM 1 FOR 4), 
+            'Computer Science and Engineering', 
+            'Faculty',
+            full_name
+        )
+        ON CONFLICT (id) DO UPDATE SET staff_name = EXCLUDED.staff_name;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- STEP 4: Reload PostgREST schema cache
+NOTIFY pgrst, 'reload schema';

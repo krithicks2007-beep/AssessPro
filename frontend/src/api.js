@@ -115,176 +115,79 @@ export const api = {
   },
 
   // 4. Groups
-  async getGroups() {
+  async getGroups(options = {}) {
+    const staffId = typeof options === 'string' ? options : (options.staffId || options.staff_id || '');
+    const fetchAll = options && typeof options === 'object' ? options.all : false;
+    const queryParams = new URLSearchParams();
+    if (staffId) queryParams.set('staff_id', staffId);
+    if (fetchAll) queryParams.set('all', 'true');
+    const qs = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
     let serverGroups = [];
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/groups`, {
+      const res = await fetchWithTimeout(`${API_BASE}/groups${qs}`, {
         headers: getAuthHeaders()
       });
       if (res.ok) {
         const data = await safeJson(res);
-        if (Array.isArray(data) && data.length > 0) serverGroups = data;
+        if (Array.isArray(data)) serverGroups = data;
       }
     } catch (err) {
-      console.warn('API getGroups fallback note:', err.message);
+      console.warn('API getGroups error:', err.message);
     }
 
     if (serverGroups.length === 0) {
       try {
         const supabase = getSupabaseClient();
         if (supabase) {
-          const { data, error } = await supabase.from('groups').select('*').order('group_number');
-          if (!error && Array.isArray(data) && data.length > 0) {
+          let query = supabase.from('groups').select('*').order('group_number');
+          if (staffId) query = query.eq('created_by', staffId);
+          const { data, error } = await query;
+          if (!error && Array.isArray(data)) {
             serverGroups = data;
           }
         }
       } catch (err) {}
     }
 
-    if (serverGroups.length === 0) {
-      serverGroups = [
-        { id: '00000000-0000-0000-0000-000000000001', group_number: 1, name: 'Programming & Logic', category: 'Core Subjects', department: 'Computer Science and Engineering', color: '#1d72fe' },
-        { id: '00000000-0000-0000-0000-000000000002', group_number: 2, name: 'Electronics & Control', category: 'Professional Core', department: 'Computer Science and Engineering', color: '#10b981' },
-        { id: '00000000-0000-0000-0000-000000000003', group_number: 3, name: 'Mechanical & Design', category: 'Specialization Subjects', department: 'Computer Science and Engineering', color: '#8b5cf6' }
-      ];
-    }
-
-    // Merge custom groups from localStorage
-    try {
-      const stored = localStorage.getItem('assesspro_custom_groups');
-      if (stored) {
-        const customGroups = JSON.parse(stored);
-        if (Array.isArray(customGroups) && customGroups.length > 0) {
-          const map = new Map();
-          serverGroups.forEach(g => map.set(g.id, g));
-          customGroups.forEach(g => map.set(g.id, g));
-          return Array.from(map.values()).sort((a, b) => (a.group_number || 0) - (b.group_number || 0));
-        }
-      }
-    } catch (e) {}
-
     return serverGroups;
   },
 
   async createGroup(groupData) {
-    let created = null;
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/groups`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(groupData)
-      });
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (data && data.id) created = data;
-      }
-    } catch (err) {
-      console.warn('Backend createGroup fallback note:', err.message);
+    const res = await fetchWithTimeout(`${API_BASE}/groups`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(groupData)
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to create group');
     }
-
-    if (!created) {
-      try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const { data, error } = await supabase.from('groups').insert([groupData]).select();
-          if (data && data[0]) created = data[0];
-        }
-      } catch (err) {}
-    }
-
-    if (!created) {
-      const allGroups = await this.getGroups();
-      const nextNum = allGroups.length + 1;
-      const defaultColors = ['#1d72fe', '#10b981', '#8b5cf6', '#f97316', '#ec4899', '#06b6d4'];
-      created = {
-        id: 'group-' + Date.now(),
-        group_number: nextNum,
-        name: groupData.name || `Group ${nextNum}`,
-        category: groupData.category || 'Specialization Subjects',
-        department: groupData.department || 'Computer Science and Engineering',
-        color: groupData.color || defaultColors[(nextNum - 1) % defaultColors.length]
-      };
-    }
-
-    try {
-      const stored = localStorage.getItem('assesspro_custom_groups');
-      const list = stored ? JSON.parse(stored) : [];
-      list.push(created);
-      localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
-    } catch (e) {}
-
-    return created;
+    return data;
   },
 
   async updateGroupName(id, name) {
-    let updated = null;
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
-        method: 'PUT',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ name })
-      });
-      if (res.ok) {
-        const data = await safeJson(res);
-        if (data && data.id) updated = data;
-      }
-    } catch (err) {
-      console.warn('Backend updateGroupName note:', err.message);
+    const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ name })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to update group name');
     }
-
-    if (!updated) {
-      try {
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const { data, error } = await supabase.from('groups').update({ name }).eq('id', id).select();
-          if (data && data[0]) updated = data[0];
-        }
-      } catch (err) {}
-    }
-
-    if (!updated) {
-      updated = { id, name };
-    }
-
-    try {
-      const stored = localStorage.getItem('assesspro_custom_groups');
-      let list = stored ? JSON.parse(stored) : [];
-      const idx = list.findIndex(g => g.id === id);
-      if (idx !== -1) {
-        list[idx] = { ...list[idx], name };
-      } else {
-        list.push(updated);
-      }
-      localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
-    } catch (e) {}
-
-    return updated;
+    return data;
   },
 
   async deleteGroup(id) {
-    try {
-      await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders()
-      });
-    } catch (e) {}
-
-    try {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        await supabase.from('groups').delete().eq('id', id);
-      }
-    } catch (e) {}
-
-    try {
-      const stored = localStorage.getItem('assesspro_custom_groups');
-      if (stored) {
-        let list = JSON.parse(stored);
-        list = list.filter(g => g.id !== id);
-        localStorage.setItem('assesspro_custom_groups', JSON.stringify(list));
-      }
-    } catch (e) {}
-
+    const res = await fetchWithTimeout(`${API_BASE}/groups/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const data = await safeJson(res);
+      throw new Error(data.error || 'Failed to delete group');
+    }
     return true;
   },
 
@@ -329,29 +232,6 @@ export const api = {
         }
       } catch (e) {}
     }
-
-    // Local storage persistence fallback
-    try {
-      const stored = localStorage.getItem('assesspro_custom_tests');
-      const list = stored ? JSON.parse(stored) : [];
-      const idx = list.findIndex(t => String(t.id) === String(id));
-      const testRecord = {
-        id,
-        ...testPayload,
-        questions: testPayload.questions || (idx !== -1 ? list[idx].questions : []),
-        uploaded_file_name: testPayload.uploaded_file_name || testPayload.uploadedFileName || (idx !== -1 ? list[idx].uploaded_file_name : ''),
-        uploadedFileName: testPayload.uploadedFileName || testPayload.uploaded_file_name || (idx !== -1 ? list[idx].uploadedFileName : ''),
-        total_questions: testPayload.questions ? testPayload.questions.length : (idx !== -1 ? list[idx].total_questions : 0)
-      };
-
-      if (idx !== -1) {
-        list[idx] = { ...list[idx], ...testRecord };
-      } else {
-        list.unshift(testRecord);
-      }
-      localStorage.setItem('assesspro_custom_tests', JSON.stringify(list));
-      if (!updated) updated = testRecord;
-    } catch (e) {}
 
     if (!updated) {
       updated = { id, ...testPayload };
@@ -402,38 +282,27 @@ export const api = {
           .select('*, groups(name, group_number, color)')
           .order('created_at', { ascending: false });
         if (!error && Array.isArray(data)) {
-          const stored = localStorage.getItem('assesspro_custom_tests');
-          const localList = stored ? JSON.parse(stored) : [];
-          let list = data.map(dbTest => {
-            const local = localList.find(l => String(l.id) === String(dbTest.id) || l.title === dbTest.title);
-            const mergedQuestions = (local?.questions && local.questions.length > 0) ? local.questions : (dbTest.questions || []);
-            const filename = local?.uploaded_file_name || local?.uploadedFileName || dbTest.uploaded_file_name || (mergedQuestions.length > 0 ? (dbTest.title ? `${dbTest.title} (Saved Assessment File)` : `Saved Questions (${mergedQuestions.length} MCQs)`) : '');
-            return {
-              ...dbTest,
-              questions: mergedQuestions,
-              created_by_email: local?.created_by_email || local?.userEmail || dbTest.created_by_email,
-              uploaded_file_name: filename,
-              uploadedFileName: filename,
-              total_questions: mergedQuestions.length || dbTest.total_questions || 0,
-              assigned_students: local?.assignedStudents || local?.assigned_students || dbTest.assigned_students || []
-            };
-          });
+          let list = data.map(t => ({
+            ...t,
+            questions: Array.isArray(t.questions) ? t.questions : [],
+            assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
+            total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
+            uploadedFileName: t.uploaded_file_name || '',
+            start_time: t.start_time || t.scheduled_date
+          }));
 
           if (staffEmail || staffId) {
             list = list.filter(t => {
-              const matchesEmail = staffEmail && (
-                (t.created_by_email && t.created_by_email.toLowerCase() === staffEmail.toLowerCase()) ||
-                (t.userEmail && t.userEmail.toLowerCase() === staffEmail.toLowerCase())
-              );
-              const matchesId = staffId && String(t.created_by) === String(staffId);
-              return matchesEmail || matchesId;
+              const byEmail = staffEmail && (t.created_by_email || '').toLowerCase() === staffEmail.toLowerCase();
+              const byId = staffId && String(t.created_by) === String(staffId);
+              return byEmail || byId;
             });
           }
 
           if (studentEmail) {
             list = list.filter(t => {
               if (!t.assigned_students || t.assigned_students.length === 0) return true;
-              return t.assigned_students.map(e => (typeof e === 'string' ? e : e?.email || '').toLowerCase()).includes(studentEmail.toLowerCase());
+              return t.assigned_students.some(e => (typeof e === 'string' ? e : e?.email || '').toLowerCase() === studentEmail.toLowerCase());
             });
           }
 
@@ -544,72 +413,20 @@ export const api = {
       throw new Error('Assessment could not be saved. Please try again.');
     }
 
-    // Persist in localStorage so it stays even on page refresh
-    try {
-      const stored = localStorage.getItem('assesspro_custom_tests');
-      const list = stored ? JSON.parse(stored) : [];
-      list.unshift(created);
-      localStorage.setItem('assesspro_custom_tests', JSON.stringify(list));
-    } catch (e) {}
+
 
     return created;
   },
 
   async deleteTest(testId, keepData = false) {
-    // 1. Remove from localStorage immediately so it never resurrects
-    try {
-      const stored = localStorage.getItem('assesspro_custom_tests');
-      if (stored) {
-        const list = JSON.parse(stored);
-        const filtered = list.filter(t => String(t.id) !== String(testId));
-        localStorage.setItem('assesspro_custom_tests', JSON.stringify(filtered));
-      }
-    } catch (e) {}
-
-    // 2. Local storage sync: purge submission records if keepData is false
-    if (!keepData) {
-      try {
-        const stored = localStorage.getItem('assesspro_all_submissions');
-        if (stored) {
-          const subs = JSON.parse(stored);
-          const filtered = subs.filter(s => String(s.test_id) !== String(testId));
-          localStorage.setItem('assesspro_all_submissions', JSON.stringify(filtered));
-        }
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('assesspro_subs_')) {
-            const subs = JSON.parse(localStorage.getItem(key) || '[]');
-            const filtered = subs.filter(s => String(s.test_id) !== String(testId));
-            localStorage.setItem(key, JSON.stringify(filtered));
-          }
-        }
-      } catch (e) {}
-    }
-
-    // 3. Call backend API
     try {
       await fetchWithTimeout(`${API_BASE}/tests/${testId}?keepData=${keepData}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });
     } catch (err) {
-      console.warn('Backend deleteTest note (proceeding with local sync):', err.message);
+      console.warn('Backend deleteTest error:', err.message);
     }
-
-    // 4. Direct Supabase deletion fallback
-    try {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        const isValidUUID = (str) => typeof str === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str);
-        if (isValidUUID(testId)) {
-          if (!keepData) {
-            await supabase.from('test_submissions').delete().eq('test_id', testId);
-          }
-          await supabase.from('tests').delete().eq('id', testId);
-        }
-      }
-    } catch (e) {}
-
     return true;
   },
 
@@ -620,7 +437,7 @@ export const api = {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(submissionData)
-      }, 5000);
+      }, 30000);
 
       if (res.ok) {
         const data = await safeJson(res);
@@ -640,23 +457,7 @@ export const api = {
       throw new Error('Submission was not confirmed by the server');
     }
 
-    // Persist in localStorage for student & faculty view
-    try {
-      const studentEmail = (submitted.student_email || submissionData.studentEmail || '').toLowerCase().trim();
-      if (studentEmail) {
-        const studentKey = 'assesspro_subs_' + studentEmail;
-        const existingStudentSubs = JSON.parse(localStorage.getItem(studentKey) || '[]');
-        const filteredStudentSubs = existingStudentSubs.filter(s => String(s.test_id) !== String(testId));
-        filteredStudentSubs.unshift(submitted);
-        localStorage.setItem(studentKey, JSON.stringify(filteredStudentSubs));
-      }
 
-      const allKey = 'assesspro_all_submissions';
-      const existingAllSubs = JSON.parse(localStorage.getItem(allKey) || '[]');
-      const filteredAllSubs = existingAllSubs.filter(s => !(String(s.test_id) === String(testId) && (s.student_email || '').toLowerCase().trim() === studentEmail));
-      filteredAllSubs.unshift(submitted);
-      localStorage.setItem(allKey, JSON.stringify(filteredAllSubs));
-    } catch (e) {}
 
     return submitted;
   },
@@ -675,17 +476,7 @@ export const api = {
       console.warn('Fallback submissions note:', err.message);
     }
 
-    // Merge from local storage
-    try {
-      const stored = localStorage.getItem('assesspro_all_submissions');
-      if (stored) {
-        const localSubs = JSON.parse(stored);
-        if (Array.isArray(localSubs)) {
-          const matching = localSubs.filter(s => String(s.test_id) === String(testId));
-          matching.forEach(s => list.push(s));
-        }
-      }
-    } catch (e) {}
+
 
     // Deduplicate by student email so each student only appears once per test
     const subMap = new Map();
@@ -891,6 +682,17 @@ export const api = {
       }
     } catch (e) {}
 
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: dbReq } = await supabase
+          .from('staff_requests').select('status').eq('email', email).maybeSingle();
+        if (dbReq?.status === 'approved') return { role: 'staff', status: 'approved' };
+        if (dbReq?.status === 'pending')  return { role: 'pending_staff', status: 'pending' };
+        if (dbReq?.status === 'rejected') return { role: 'unassigned', status: 'rejected' };
+      }
+    } catch (e) {}
+
     return { status: 'none', role: 'unassigned' };
   },
 
@@ -999,9 +801,12 @@ export const api = {
   },
 
   // 8. Students Registry & Staff Mapping
-  async getAllStudents() {
+  async getAllStudents(options = {}) {
+    const assignedTo = options.assigned_to || options.assignedTo || '';
+    const qs = assignedTo ? `?assigned_to=${encodeURIComponent(assignedTo)}` : '';
+
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/students`, { headers: getAuthHeaders() });
+      const res = await fetchWithTimeout(`${API_BASE}/students${qs}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await safeJson(res);
         if (Array.isArray(data)) return data;
@@ -1010,7 +815,7 @@ export const api = {
       console.warn('API /students fetch warning:', e.message);
     }
 
-    // Direct Supabase fallback
+    // Direct Supabase fallback — also apply the assigned_to filter
     try {
       const supabase = getSupabaseClient();
       if (supabase) {
@@ -1026,12 +831,9 @@ export const api = {
             dbStudents.forEach(st => profileMap.set(st.id, st));
           }
 
-          const localMap = JSON.parse(localStorage.getItem('assesspro_staff_student_mapping') || '{}');
-
-          return studentUsers.map(u => {
+          let mapped = studentUsers.map(u => {
             const cleanEmail = (u.mailid || u.email || '').toLowerCase().trim();
             const prof = profileMap.get(u.id) || {};
-            const assigned = localMap[cleanEmail] || {};
             return {
               id: u.id,
               name: u.name || (cleanEmail ? cleanEmail.split('@')[0] : 'Student'),
@@ -1040,10 +842,17 @@ export const api = {
               department: prof.department || null,
               year: prof.year || null,
               section: prof.section || null,
-              assigned_staff_id: prof.assigned_staff_id || assigned.staffId || null,
-              assigned_staff_name: prof.assigned_staff_name || assigned.staffName || null
+              assigned_staff_id: prof.assigned_staff_id || null,
+              assigned_staff_name: prof.assigned_staff_name || null
             };
           });
+
+          // Apply assigned_to filter in Supabase fallback path
+          if (assignedTo) {
+            mapped = mapped.filter(s => s.assigned_staff_id === assignedTo);
+          }
+
+          return mapped;
         }
       }
     } catch (e) {

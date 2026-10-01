@@ -112,20 +112,7 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     onClose();
   };
 
-  const questions = test.questions && test.questions.length > 0 
-    ? test.questions 
-    : [
-        { id: 1, question: 'Which data structure follows the Last-In-First-Out (LIFO) principle?', options: ['Queue', 'Stack', 'Linked List', 'Binary Tree'], correct_index: 1, marks: 10 },
-        { id: 2, question: 'What is the average time complexity of searching in a Hash Map?', options: ['O(n)', 'O(log n)', 'O(1)', 'O(n^2)'], correct_index: 2, marks: 10 },
-        { id: 3, question: 'Which algorithm is used for finding the shortest path in a weighted graph?', options: ['Dijkstra', 'DFS', 'Kruskal', 'Prim'], correct_index: 0, marks: 10 },
-        { id: 4, question: 'Which traversal of a Binary Search Tree (BST) produces sorted output?', options: ['Pre-order', 'In-order', 'Post-order', 'Level-order'], correct_index: 1, marks: 10 },
-        { id: 5, question: 'Which data structure is primarily used in Breadth-First Search (BFS)?', options: ['Stack', 'Queue', 'Array', 'Heap'], correct_index: 1, marks: 10 },
-        { id: 6, question: 'What is the resolution of a 10-bit Analog-to-Digital Converter (ADC)?', options: ['256 levels', '512 levels', '1024 levels', '2048 levels'], correct_index: 2, marks: 10 },
-        { id: 7, question: 'In digital electronics, which gate is known as the Universal Gate?', options: ['AND', 'NAND', 'OR', 'XOR'], correct_index: 1, marks: 10 },
-        { id: 8, question: 'Which interrupt has the highest execution priority in modern ARM microcontrollers?', options: ['SysTick', 'PendSV', 'Non-Maskable Interrupt (NMI)', 'External GPIO'], correct_index: 2, marks: 10 },
-        { id: 9, question: 'Which memory type retains its data when power is completely turned off?', options: ['SRAM', 'DRAM', 'EEPROM', 'CPU Registers'], correct_index: 2, marks: 10 },
-        { id: 10, question: 'What is the Nyquist minimum sampling rate for a signal bandwidth of 4 kHz?', options: ['2 kHz', '4 kHz', '8 kHz', '16 kHz'], correct_index: 2, marks: 10 }
-      ];
+  const questions = test.questions && test.questions.length > 0 ? test.questions : [];
 
   const handleSubmitExam = async () => {
     if (submitting) return;
@@ -538,6 +525,26 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
                   >
                     <Lock size={16} />
                     <span>Test Locked Until Start Time</span>
+                  </button>
+                ) : questions.length === 0 ? (
+                  <button
+                    disabled
+                    style={{
+                      padding: '0.7rem 1.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      background: '#f1f5f9',
+                      color: '#64748b',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      cursor: 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    <AlertTriangle size={16} />
+                    <span>No questions uploaded yet</span>
                   </button>
                 ) : (
                   <button

@@ -13,9 +13,10 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,ht
   .split(',').map(origin => origin.trim()).filter(Boolean);
 
 app.use(cors({
-  origin: '*',
+  origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 app.use(express.json());
 
@@ -225,6 +226,13 @@ app.get('/api/students', verifyAuth, requireRoles('staff', 'admin'), async (req,
       };
     });
 
+    // Optional filter: only return students assigned to a specific staff member
+    const assignedTo = req.query.assigned_to || '';
+    if (assignedTo) {
+      const effectiveId = assignedTo === 'me' ? req.user.id : assignedTo;
+      return res.json(studentList.filter(s => s.assigned_staff_id === effectiveId));
+    }
+
     res.json(studentList);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch students', details: err.message });
@@ -310,7 +318,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
         try {
           const { data } = await supabase.from('users').select('*').eq('mailid', cleanEmail).maybeSingle();
           if (data) adminProf = data;
-          else await supabase.from('users').upsert(adminProf);
+          else await supabase.from('users').upsert(adminProf, { onConflict: 'id' });
         } catch (e) {}
       }
       return res.json({ user, profile: adminProf, role: 'admin' });
@@ -417,7 +425,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
           UserType: institutionalRole
         };
         try {
-          await supabase.from('users').upsert(profile);
+          await supabase.from('users').upsert(profile, { onConflict: 'id' });
         } catch (upsertErr) {}
         return res.json({
           user,
@@ -438,7 +446,7 @@ app.get('/api/user/profile', verifyAuth, async (req, res) => {
           UserType: 'staff'
         };
         try {
-          await supabase.from('users').upsert(profile);
+          await supabase.from('users').upsert(profile, { onConflict: 'id' });
         } catch (e) {}
         return res.json({ user, profile, role: 'staff' });
       }
@@ -613,7 +621,7 @@ app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admi
       if (ex) userId = ex.id;
     }
     if (userId) {
-      await supabase.from('users').upsert({ id: userId, name: targetReq.name, mailid: cleanEmail, UserType: 'staff' });
+      await supabase.from('users').upsert({ id: userId, name: targetReq.name, mailid: cleanEmail, UserType: 'staff' }, { onConflict: 'id' });
     }
   } catch (e) {}
 
@@ -798,28 +806,37 @@ app.get('/api/groups', verifyAuth, async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabase
+    const creatorFilter = req.query.staff_id || req.query.created_by || '';
+
+    let query = supabase
       .from('groups')
       .select('*')
       .order('group_number', { ascending: true });
 
+    // Scope: staff sees own groups (unless all=true is passed), admin sees all, students see all (frontend filters based on effective tests)
+    if (creatorFilter) {
+      query = query.eq('created_by', creatorFilter);
+    } else if (req.userRole === 'staff' && req.query.all !== 'true') {
+      query = query.eq('created_by', req.user.id);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
-    // Auto-seed initial groups if table is completely empty
-    if (!data || data.length === 0) {
+    // Auto-seed default groups for this staff member if they have none yet
+    if ((!data || data.length === 0) && req.userRole === 'staff') {
       const defaultGroups = [
-        { group_number: 1, name: 'Programming & Logic', category: 'Core Subjects', department: 'Mechatronics Engineering', color: '#1d72fe' },
-        { group_number: 2, name: 'Electronics & Control', category: 'Professional Core', department: 'Mechatronics Engineering', color: '#10b981' },
-        { group_number: 3, name: 'Mechanical & Design', category: 'Specialization Subjects', department: 'Mechatronics Engineering', color: '#8b5cf6' }
+        { group_number: 1, name: 'Group 1', category: 'Core Subjects', department: 'General', color: '#1d72fe', created_by: req.user.id },
+        { group_number: 2, name: 'Group 2', category: 'Professional Core', department: 'General', color: '#10b981', created_by: req.user.id },
+        { group_number: 3, name: 'Group 3', category: 'Specialization Subjects', department: 'General', color: '#8b5cf6', created_by: req.user.id }
       ];
       const { data: seeded, error: seedErr } = await supabase.from('groups').insert(defaultGroups).select();
       if (!seedErr && seeded) {
         return res.json(seeded);
       }
-      return res.json(defaultGroups);
     }
 
-    res.json(data);
+    res.json(data || []);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch groups', details: err.message });
   }
@@ -841,7 +858,8 @@ app.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (req, 
     // Check maximum 6 groups limit
     const { data: existing, error: countErr } = await supabase
       .from('groups')
-      .select('id, group_number');
+      .select('id, group_number')
+      .eq('created_by', req.user.id);
     if (countErr) throw countErr;
 
     if (existing && existing.length >= 6) {
@@ -862,8 +880,9 @@ app.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (req, 
       group_number: nextNumber,
       name: cleanName,
       category: category || 'Specialization Subjects',
-      department: department || 'Mechatronics Engineering',
-      color: assignedColor
+      department: department || 'General',
+      color: assignedColor,
+      created_by: req.user.id
     };
 
     const { data, error } = await supabase.from('groups').insert([newGroup]).select();
@@ -889,11 +908,15 @@ app.put('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async (re
   }
 
   try {
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('groups')
       .update({ name: cleanName })
-      .eq('id', id)
-      .select();
+      .eq('id', id);
+    // Ownership: staff can only rename their own groups
+    if (req.userRole !== 'admin') {
+      updateQuery = updateQuery.eq('created_by', req.user.id);
+    }
+    const { data, error } = await updateQuery.select();
 
     if (error) throw error;
     if (!data || data.length === 0) {
@@ -913,7 +936,11 @@ app.delete('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async 
 
   const { id } = req.params;
   try {
-    const { error } = await supabase.from('groups').delete().eq('id', id);
+    let delQuery = supabase.from('groups').delete().eq('id', id);
+    if (req.userRole !== 'admin') {
+      delQuery = delQuery.eq('created_by', req.user.id);
+    }
+    const { error } = await delQuery;
     if (error) throw error;
     res.json({ success: true, message: 'Group removed successfully' });
   } catch (err) {
