@@ -459,15 +459,40 @@ export const api = {
   },
 
   async deleteTest(testId, keepData = false) {
-    const res = await fetchWithTimeout(`${API_BASE}/tests/${testId}?keepData=${keepData}`, {
-      method: 'DELETE',
-      headers: getAuthHeaders()
-    });
-    if (!res.ok) {
-      const data = await safeJson(res);
-      const errMsg = data.details ? `${data.error}: ${data.details}` : (data.error || 'Failed to delete test');
-      throw new Error(errMsg);
+    let deleted = false;
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/tests/${testId}?keepData=${keepData}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        deleted = true;
+      } else {
+        const data = await safeJson(res);
+        const errMsg = data.details ? `${data.error}: ${data.details}` : (data.error || 'Failed to delete test');
+        throw new Error(errMsg);
+      }
+    } catch (err) {
+      console.warn('Backend deleteTest failed, trying fallback:', err.message);
+      
+      // If it was a deliberate backend API error (e.g., 400/500 validation), throw it.
+      // If it was a network error ("Failed to fetch" or timeout), fall back to Supabase.
+      if (err.message && err.message !== 'Failed to fetch' && err.message !== 'Request timed out' && !err.message.includes('NetworkError')) {
+        throw err;
+      }
     }
+
+    if (!deleted) {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('No backend or supabase client');
+      
+      if (!keepData) {
+        await supabase.from('test_submissions').delete().eq('test_id', testId);
+      }
+      const { error } = await supabase.from('tests').delete().eq('id', testId);
+      if (error) throw new Error(`Supabase Error: ${error.message}`);
+    }
+    
     return true;
   },
 

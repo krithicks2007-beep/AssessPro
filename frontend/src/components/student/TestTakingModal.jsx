@@ -119,9 +119,6 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     setSubmitting(true);
     setSubmitError('');
     clearInterval(timerRef.current);
-    try {
-      await exitFullscreenMode();
-    } catch {}
 
     const timeSpent = Math.max(1, Math.round(((test.duration_minutes || 30) * 60) - timeLeftSeconds));
 
