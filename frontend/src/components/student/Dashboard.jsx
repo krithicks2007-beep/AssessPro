@@ -162,7 +162,7 @@ export default function Dashboard({
             <BarChart2 size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
               {displayOverallScore}%
             </div>
             <div style={{ fontSize: '0.9rem', color: '#6d28d9', marginTop: '0.3rem', fontWeight: 600 }}>
@@ -196,7 +196,7 @@ export default function Dashboard({
             <FileText size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
               {totalTestsCount}
             </div>
             <div style={{ fontSize: '0.9rem', color: '#1d4ed8', marginTop: '0.3rem', fontWeight: 600 }}>
@@ -230,7 +230,7 @@ export default function Dashboard({
             <Hourglass size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
               {displayPendingCount}
             </div>
             <div style={{ fontSize: '0.9rem', color: '#b45309', marginTop: '0.3rem', fontWeight: 600 }}>
@@ -264,7 +264,7 @@ export default function Dashboard({
             <Check size={28} strokeWidth={3} />
           </div>
           <div>
-            <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
+            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
               {displayCompletedCount}
             </div>
             <div style={{ fontSize: '0.9rem', color: '#047857', marginTop: '0.3rem', fontWeight: 600 }}>
