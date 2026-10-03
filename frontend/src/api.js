@@ -29,10 +29,26 @@ const fetchWithTimeout = async (url, options = {}, timeout = 8000) => {
     const response = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
     if (response.status === 401 && !url.includes('/auth/login')) {
+      const clone = response.clone();
+      try {
+        const errData = await clone.json();
+        if (errData.code === 'ACCOUNT_BANNED') {
+          console.error('API returned ACCOUNT_BANNED.');
+          window.dispatchEvent(new CustomEvent('account-banned', { detail: errData.banDetails }));
+          throw new Error('ACCOUNT_BANNED');
+        }
+        if (errData.code === 'ACCOUNT_DELETED') {
+          console.error('API returned ACCOUNT_DELETED.');
+          window.dispatchEvent(new CustomEvent('account-deleted'));
+          throw new Error('ACCOUNT_DELETED');
+        }
+      } catch (e) {
+        if (e.message === 'ACCOUNT_BANNED' || e.message === 'ACCOUNT_DELETED') throw e;
+      }
+      
       console.error('API returned 401 Unauthorized. Dispatching session-expired. URL:', url);
       window.dispatchEvent(new CustomEvent('session-expired'));
-    }
-    return response;
+      throw new Error('SESSION_EXPIRED');
   } catch (err) {
     clearTimeout(id);
     throw new Error(err.name === 'AbortError' ? 'Request timed out' : err.message);
@@ -89,9 +105,15 @@ export const api = {
       if (res.ok) {
         const data = await safeJson(res);
         return data;
+      } else {
+        const errorText = await res.text();
+        throw new Error(`Backend returned ${res.status}: ${errorText}`);
       }
     } catch(err) {
       console.warn('Backend getUserProfile failed, trying fallback', err);
+      if (err.message === 'ACCOUNT_BANNED' || err.message === 'ACCOUNT_DELETED' || err.message === 'SESSION_EXPIRED') {
+        throw err; // Do not fallback if the backend explicitly banned or deleted the user!
+      }
     }
 
     // Direct Supabase Fallback
@@ -104,6 +126,13 @@ export const api = {
     
     const email = (user.email || '').toLowerCase().trim();
     const { data: profile } = await supabase.from('users').select('*').eq('mailid', email).maybeSingle();
+    
+    // Also check banned status directly!
+    const { data: banData } = await supabase.from('banned_users').select('*').eq('email', email).maybeSingle();
+    if (banData && banData.request_state !== 'approved') {
+      window.dispatchEvent(new CustomEvent('account-banned', { detail: banData }));
+      throw new Error('ACCOUNT_BANNED');
+    }
     
     let role = 'unassigned';
     if (email === 'krithickrajs.cs25@bitsathy.ac.in') role = 'admin';
@@ -889,6 +918,51 @@ export const api = {
     } catch (e) {}
 
     return { status: 'none', role: 'unassigned' };
+  },
+  // Ban a user
+  banUser: async (email, ban_type) => {
+    const res = await fetchWithTimeout(`${API_BASE}/admin/ban`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email, ban_type })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to ban user');
+    return data;
+  },
+
+  // Get student requests
+  getStudentRequests: async () => {
+    const res = await fetchWithTimeout(`${API_BASE}/admin/student-requests`, {
+      headers: getAuthHeaders()
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch student requests');
+    return data;
+  },
+
+  // Resolve student request
+  resolveStudentRequest: async (email, action) => {
+    const res = await fetchWithTimeout(`${API_BASE}/admin/student-requests/resolve`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email, action })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to resolve request');
+    return data;
+  },
+
+  // Request reinstatement (student side)
+  requestReinstatement: async (email) => {
+    const res = await fetchWithTimeout(`${API_BASE}/auth/request-reinstatement`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email })
+    });
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data.error || 'Failed to request reinstatement');
+    return data;
   },
 
   async getStaffRequests() {

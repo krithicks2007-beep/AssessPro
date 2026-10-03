@@ -13,6 +13,7 @@ import AdminLayout from './components/admin/AdminLayout';
 import AuthErrorModal from './components/auth/AuthErrorModal';
 import StudentOnboardingModal from './components/student/StudentOnboardingModal';
 import RoleSelectionModal from './components/auth/RoleSelectionModal';
+import DeletedUserScreen from './components/auth/DeletedUserScreen';
 import { isMasterAccount, parseBitEmail } from './utils/studentParser';
 import { GraduationCap, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -23,6 +24,7 @@ export default function App() {
   const [studentProfile, setStudentProfile] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [banDetails, setBanDetails] = useState(null);
   const [appActionSuccess, setAppActionSuccess] = useState('');
   const [appActionError, setAppActionError] = useState('');
 
@@ -57,8 +59,14 @@ export default function App() {
         if (profileInfo.isDeletedOrNew) isDeletedOrNew = true;
       }
     } catch (e) {
-      console.warn('Failed to securely fetch role from backend, falling back to client logic.', e);
-      targetRole = resolveRoleFromEmail(email);
+      if (e.message === 'ACCOUNT_BANNED') {
+        targetRole = 'banned';
+      } else if (e.message === 'ACCOUNT_DELETED') {
+        targetRole = 'deleted';
+      } else {
+        console.warn('Failed to securely fetch role from backend, falling back to client logic.', e);
+        targetRole = resolveRoleFromEmail(email);
+      }
       
       if (targetRole === 'unassigned' || targetRole === 'pending_staff') {
         try {
@@ -77,16 +85,18 @@ export default function App() {
     const cleanEmail = email.toLowerCase().trim();
     console.log('Determined targetRole:', targetRole, 'isDeletedOrNew:', isDeletedOrNew);
 
-    // If role is unassigned or profile is marked deleted/new:
-    if (targetRole === 'unassigned' || isDeletedOrNew) {
-      console.log('Clearing local storage cache because role is unassigned or profile is new');
+    // If role is unassigned or profile is marked deleted/new/banned:
+    if (targetRole === 'unassigned' || isDeletedOrNew || targetRole === 'deleted' || targetRole === 'banned') {
+      console.log('Clearing local storage cache because role is unassigned, deleted, banned, or profile is new');
       localStorage.removeItem(`assesspro_student_prof_${cleanEmail}`);
       localStorage.removeItem(`assesspro_role_${cleanEmail}`);
       localStorage.removeItem(`assesspro_subs_${cleanEmail}`);
       localStorage.removeItem('assesspro_staff_student_mapping');
       localStorage.removeItem('assesspro_staff_requests');
       setStudentProfile(null);
-      targetRole = 'unassigned';
+      if (targetRole !== 'deleted' && targetRole !== 'banned') {
+        targetRole = 'unassigned';
+      }
     }
 
     if (cleanEmail === 'krithickrajs.cs25@bitsathy.ac.in') {
@@ -196,18 +206,38 @@ export default function App() {
 
     const handleSessionExpired = async () => {
       setAuthError('Your session has expired. Please log in again.');
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {
+        console.warn('Silent signout failure during session expiry:', err.message);
+      }
       setSession(null);
       setCurrentUser(null);
       setCurrentRole(null);
       localStorage.removeItem('assesspro_auth_token');
     };
+    
+    const handleAccountDeleted = () => {
+      setCurrentRole('deleted');
+      setLoading(false);
+    };
+
+    const handleAccountBanned = (e) => {
+      setBanDetails(e.detail);
+      setCurrentRole('banned');
+      setLoading(false);
+    };
+
     window.addEventListener('session-expired', handleSessionExpired);
+    window.addEventListener('account-deleted', handleAccountDeleted);
+    window.addEventListener('account-banned', handleAccountBanned);
 
     return () => {
       isMounted = false;
       subscription?.unsubscribe();
       window.removeEventListener('session-expired', handleSessionExpired);
+      window.removeEventListener('account-deleted', handleAccountDeleted);
+      window.removeEventListener('account-banned', handleAccountBanned);
     };
   }, [validateAndSetSession]);
 
@@ -243,7 +273,9 @@ export default function App() {
     localStorage.removeItem('assesspro_staff_student_mapping');
     const supabase = getSupabaseClient();
     if (supabase) {
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch (err) {}
     }
     setSession(null);
     setCurrentUser(null);
@@ -290,16 +322,16 @@ export default function App() {
     const isBitDomain = userEmail.endsWith('@bitsathy.ac.in');
     const parsedBit = isBitDomain ? parseBitEmail(userEmail) : null;
 
-    // Student profile fallback: BIT students get auto-filled values, non-BIT students get empty fields except name
+    // Student profile fallback
     const effectiveStudentProfile = studentProfile || {
       name: currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || userEmail.split('@')[0],
       email: currentUser?.email,
       institution: isBitDomain ? 'Bannari Amman Institute of Technology' : '',
-      reg_no: isBitDomain ? (parsedBit?.predictedRegNo || '7376251CS101') : '',
-      department: isBitDomain ? (parsedBit?.department || 'Computer Science and Engineering') : '',
-      year: isBitDomain ? (parsedBit?.academicYear || 'II Year (Second Year)') : '',
-      section: isBitDomain ? 'A' : '',
-      dob: isBitDomain ? '2005-08-12' : '',
+      reg_no: isBitDomain ? (parsedBit?.predictedRegNo || '') : '',
+      department: isBitDomain ? (parsedBit?.department || '') : '',
+      year: isBitDomain ? (parsedBit?.academicYear || '') : '',
+      section: '',
+      dob: '',
       phone: ''
     };
 
@@ -389,6 +421,15 @@ export default function App() {
               }
             }}
             onSignOut={handleSignOut}
+          />
+        )}
+
+        {(currentRole === 'deleted' || currentRole === 'banned') && (
+          <DeletedUserScreen 
+            user={currentUser} 
+            role={currentRole} 
+            banDetails={banDetails} 
+            onSignOut={handleSignOut} 
           />
         )}
 

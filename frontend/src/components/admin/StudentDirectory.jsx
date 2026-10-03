@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, AlertCircle, ArrowLeft, X, Save } from "lucide-react";
+import { Search, AlertCircle, ArrowLeft, X, Save, Trash2 } from "lucide-react";
 import api from "../../api";
 import StudentDashboard from "../student/Dashboard";
 
@@ -101,6 +101,39 @@ export default function StudentDirectory({ allUsers }) {
       } else { alert("Failed to update: " + (data.error || res.statusText)); }
     } catch (err) { alert("Error updating student: " + err.message); }
     setIsSaving(false);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!viewingStudent || !viewingStudent.email) return;
+    
+    const choice = window.prompt(
+      `Remove ${viewingStudent.name}?\n\nType 'HARD' to remove and wipe all their past data.\nType 'SOFT' to suspend them but keep their past data.`
+    );
+    
+    if (!choice) return;
+    const banType = choice.trim().toUpperCase();
+    
+    if (banType !== 'HARD' && banType !== 'SOFT') {
+      alert('Invalid choice. Must type HARD or SOFT.');
+      return;
+    }
+    
+    try {
+      const type = banType === 'HARD' ? 'suspended_hard' : 'suspended_soft';
+      await api.banUser(viewingStudent.email, type);
+      
+      if (banType === 'HARD') {
+         setStudentsList(studentsList.filter(s => s.id !== viewingStudent.id));
+      } else {
+         // Soft delete just keeps them in list for now
+         alert('Student suspended successfully.');
+      }
+      
+      setViewingStudent(null);
+      alert(`User successfully ${banType === 'HARD' ? 'hard deleted (data wiped)' : 'soft suspended'}.`);
+    } catch (err) {
+      alert('Error: ' + err.message);
+    }
   };
 
   const handleStaffChange = (e) => {
@@ -206,10 +239,15 @@ export default function StudentDirectory({ allUsers }) {
               )}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.5rem", borderTop: "1px solid #e2e8f0", background: "#f8fafc", borderBottomLeftRadius: "16px", borderBottomRightRadius: "16px" }}>
-              <button onClick={handleSaveStudent} disabled={isSaving} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#1d72fe", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer", opacity: isSaving ? 0.7 : 1 }}>
-                <Save size={16} />{isSaving ? "Saving..." : "Save Changes"}
+              <button onClick={handleDeleteUser} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>
+                <Trash2 size={16} /> Delete User
               </button>
-              <button onClick={() => setShowDashboard(true)} style={{ background: "#1d72fe", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>Dashboard</button>
+              <div style={{ display: "flex", gap: "1rem" }}>
+                <button onClick={() => setShowDashboard(true)} style={{ background: "transparent", color: "#1d72fe", border: "1px solid #1d72fe", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>Dashboard</button>
+                <button onClick={handleSaveStudent} disabled={isSaving} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#1d72fe", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer", opacity: isSaving ? 0.7 : 1 }}>
+                  <Save size={16} />{isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

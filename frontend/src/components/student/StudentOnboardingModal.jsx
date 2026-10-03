@@ -13,18 +13,25 @@ function StudentOnboardingModalInner({ isOpen, onClose, user, studentProfile, on
   const isBitDomain = email.toLowerCase().endsWith('@bitsathy.ac.in');
   const parsed = isBitDomain ? parseBitEmail(email) : null;
 
+  // Determine if this is a "raw" profile from the DB trigger (has no dob/phone)
+  const isRawProfile = studentProfile && !studentProfile.dob && !studentProfile.phone;
+
   const [institution, setInstitution] = useState(
     studentProfile?.institution || (isBitDomain ? 'Bannari Amman Institute of Technology' : '')
   );
   const [name, setName] = useState(
-    studentProfile?.name || studentProfile?.full_name || user?.user_metadata?.full_name || user?.user_metadata?.name || parsed?.formattedName || ''
+    studentProfile?.full_name || studentProfile?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || parsed?.formattedName || ''
   );
-  const [regNo, setRegNo] = useState(studentProfile?.reg_no || (isBitDomain ? parsed?.predictedRegNo : '') || '');
+  
+  // Prefer parsed values over DB defaults if the profile is raw/unedited
+  const [regNo, setRegNo] = useState(
+    (isRawProfile && isBitDomain && parsed?.predictedRegNo) ? parsed.predictedRegNo : (studentProfile?.reg_no || '')
+  );
   const [department, setDepartment] = useState(
-    studentProfile?.department || (isBitDomain ? (parsed?.department || 'Computer Science and Engineering') : '') || ''
+    (isRawProfile && isBitDomain && parsed?.department) ? parsed.department : (studentProfile?.department || (isBitDomain ? 'Computer Science and Engineering' : ''))
   );
   const [year, setYear] = useState(
-    studentProfile?.year || (isBitDomain ? (parsed?.academicYear || 'II Year (Second Year)') : '') || ''
+    (isRawProfile && isBitDomain && parsed?.academicYear) ? parsed.academicYear : (studentProfile?.year || (isBitDomain ? 'II Year (Second Year)' : ''))
   );
   const [section, setSection] = useState(studentProfile?.section || (isBitDomain ? 'A' : '') || '');
   const [dob, setDob] = useState(studentProfile?.dob || '');
@@ -36,11 +43,12 @@ function StudentOnboardingModalInner({ isOpen, onClose, user, studentProfile, on
   useEffect(() => {
     if (isOpen) {
       if (studentProfile) {
+        const isRaw = !studentProfile.dob && !studentProfile.phone;
         setInstitution(studentProfile.institution || (isBitDomain ? 'Bannari Amman Institute of Technology' : ''));
         setName(studentProfile.full_name || studentProfile.name || name);
-        setRegNo(studentProfile.reg_no || regNo);
-        setDepartment(studentProfile.department || department || (isBitDomain ? 'Computer Science and Engineering' : ''));
-        setYear(studentProfile.year || year || (isBitDomain ? 'II Year (Second Year)' : ''));
+        setRegNo((isRaw && isBitDomain && parsed?.predictedRegNo) ? parsed.predictedRegNo : (studentProfile.reg_no || regNo));
+        setDepartment((isRaw && isBitDomain && parsed?.department) ? parsed.department : (studentProfile.department || department || (isBitDomain ? 'Computer Science and Engineering' : '')));
+        setYear((isRaw && isBitDomain && parsed?.academicYear) ? parsed.academicYear : (studentProfile.year || year || (isBitDomain ? 'II Year (Second Year)' : '')));
         setSection(studentProfile.section || section || (isBitDomain ? 'A' : ''));
         setDob(studentProfile.dob || dob);
         setPhone(studentProfile.phone || phone);

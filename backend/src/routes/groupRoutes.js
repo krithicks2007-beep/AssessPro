@@ -1,0 +1,162 @@
+import express from 'express';
+import { supabase, SUPER_ADMIN_EMAIL, ALLOWED_DOMAIN } from '../config/db.js';
+import { verifyAuth, requireRoles, requireOwnEmail } from '../middlewares/authMiddleware.js';
+import { resolveRoleFromEmail } from '../middlewares/authMiddleware.js';
+
+import { userRoleOverrides } from '../config/store.js';
+
+const router = express.Router();
+
+// 4. GROUPS CRUD ENDPOINTS
+// -------------------------------------------------------------
+router.get('/api/groups', verifyAuth, async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database client not connected' });
+  }
+
+  try {
+    const creatorFilter = req.query.staff_id || req.query.created_by || '';
+
+    let query = supabase
+      .from('groups')
+      .select('*')
+      .order('group_number', { ascending: true });
+
+    // Scope: staff sees own groups (unless all=true is passed), admin sees all, students see all (frontend filters based on effective tests)
+    if (creatorFilter) {
+      query = query.eq('created_by', creatorFilter);
+    } else if (req.userRole === 'staff' && req.query.all !== 'true') {
+      query = query.eq('created_by', req.user.id);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Auto-seed default groups for this staff member if they have none yet
+    if ((!data || data.length === 0) && req.userRole === 'staff') {
+      const defaultGroups = [
+        { group_number: 1, name: 'Group 1', category: 'Core Subjects', department: 'General', color: '#1d72fe', created_by: req.user.id },
+        { group_number: 2, name: 'Group 2', category: 'Professional Core', department: 'General', color: '#10b981', created_by: req.user.id },
+        { group_number: 3, name: 'Group 3', category: 'Specialization Subjects', department: 'General', color: '#8b5cf6', created_by: req.user.id }
+      ];
+      const { data: seeded, error: seedErr } = await supabase.from('groups').insert(defaultGroups).select();
+      if (!seedErr && seeded) {
+        return res.json(seeded);
+      }
+    }
+
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch groups', details: err.message });
+  }
+});
+
+router.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database client not connected' });
+  }
+
+  const { name, category, department, color } = req.body;
+  const cleanName = (name || '').trim();
+
+  if (cleanName.length < 3) {
+    return res.status(400).json({ error: 'Group name must be at least 3 characters long.' });
+  }
+
+  try {
+    // Check maximum 6 groups limit
+    const { data: existing, error: countErr } = await supabase
+      .from('groups')
+      .select('id, group_number')
+      .eq('created_by', req.user.id);
+    if (countErr) throw countErr;
+
+    if (existing && existing.length >= 6) {
+      return res.status(400).json({
+        error: 'Maximum limit reached: You can create up to 6 groups per academic batch.'
+      });
+    }
+
+    const maxNumber = existing && existing.length > 0
+      ? Math.max(...existing.map(g => g.group_number || 0))
+      : 0;
+    const nextNumber = maxNumber + 1;
+
+    const defaultColors = ['#1d72fe', '#10b981', '#8b5cf6', '#f97316', '#ec4899', '#06b6d4'];
+    const assignedColor = color || defaultColors[(nextNumber - 1) % defaultColors.length];
+
+    const newGroup = {
+      group_number: nextNumber,
+      name: cleanName,
+      category: category || 'Specialization Subjects',
+      department: department || 'General',
+      color: assignedColor,
+      created_by: req.user.id
+    };
+
+    const { data, error } = await supabase.from('groups').insert([newGroup]).select();
+    if (error) throw error;
+
+    res.status(201).json(data?.[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create group', details: err.message });
+  }
+});
+
+router.put('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database client not connected' });
+  }
+
+  const { id } = req.params;
+  const { name } = req.body;
+  const cleanName = (name || '').trim();
+
+  if (cleanName.length < 3) {
+    return res.status(400).json({ error: 'Group name must be at least 3 characters long.' });
+  }
+
+  try {
+    let updateQuery = supabase
+      .from('groups')
+      .update({ name: cleanName })
+      .eq('id', id);
+    // Ownership: staff can only rename their own groups
+    if (req.userRole !== 'admin') {
+      updateQuery = updateQuery.eq('created_by', req.user.id);
+    }
+    const { data, error } = await updateQuery.select();
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Group not found or update not permitted' });
+    }
+
+    res.json(data[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update group name', details: err.message });
+  }
+});
+
+router.delete('/api/groups/:id', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database client not connected' });
+  }
+
+  const { id } = req.params;
+  try {
+    let delQuery = supabase.from('groups').delete().eq('id', id);
+    if (req.userRole !== 'admin') {
+      delQuery = delQuery.eq('created_by', req.user.id);
+    }
+    const { error } = await delQuery;
+    if (error) throw error;
+    res.json({ success: true, message: 'Group removed successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete group', details: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+
+export default router;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, AlertCircle, ArrowLeft, X, Save } from 'lucide-react';
+import { Search, AlertCircle, ArrowLeft, X, Save, Trash2 } from 'lucide-react';
 import { getSupabaseClient } from '../../supabaseClient';
 import StaffDashboard from '../staff/Dashboard';
 import Students from '../staff/Students';
@@ -100,6 +100,28 @@ export default function StaffDirectory({ allUsers }) {
       alert('Error updating staff: ' + err.message);
     }
     setIsSaving(false);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!viewingStaff || !viewingStaff.id) return;
+    if (!window.confirm(`Are you sure you want to permanently delete ${viewingStaff.name}? This will remove all their data and tests.`)) return;
+    
+    try {
+      const res = await fetch(`/api/admin/users/${viewingStaff.id}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${localStorage.getItem("assesspro_auth_token") || ""}` }
+      });
+      if (res.ok) {
+        setStaffList(staffList.filter(s => s.id !== viewingStaff.id));
+        setViewingStaff(null);
+        alert("User permanently deleted.");
+      } else {
+        const data = await res.json();
+        alert("Failed to delete user: " + (data.error || res.statusText));
+      }
+    } catch (err) {
+      alert("Error deleting user: " + err.message);
+    }
   };
 
   // If showing dashboard or students list full screen
@@ -254,14 +276,20 @@ export default function StaffDirectory({ allUsers }) {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', borderTop: '1px solid #e2e8f0', background: '#f8fafc', borderBottomLeftRadius: '16px', borderBottomRightRadius: '16px' }}>
-              <button 
-                onClick={handleSaveStaff} 
-                disabled={isSaving}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1d72fe', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
-              >
-                <Save size={16} />
-                {isSaving ? 'Saving...' : 'Save Changes'}
+              <button onClick={handleDeleteUser} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>
+                <Trash2 size={16} /> Delete User
               </button>
+              
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button 
+                  onClick={handleSaveStaff} 
+                  disabled={isSaving}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1d72fe', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <Save size={16} />
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button 
                   onClick={() => setActiveView('dashboard')} 

@@ -1,0 +1,127 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || 'bitsathy.ac.in').toLowerCase().trim();
+const SUPER_ADMIN_EMAIL = (process.env.SUPER_ADMIN_EMAIL || 'krithickrajs.cs25@bitsathy.ac.in').toLowerCase().trim();
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173')
+  .split(',').map(origin => origin.trim()).filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+app.use(express.json());
+
+
+// Initialize Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+let supabase = null;
+if (supabaseUrl && supabaseKey) {
+  supabase = createClient(supabaseUrl, supabaseKey);
+}
+
+// In-memory role overrides (used while a session is active to speed up role checks)
+const userRoleOverrides = new Map();
+
+// Helper: lookup staff request status from Supabase (replaces inMemoryStaffRequests)
+const getStaffRequestFromDB = async (email) => {
+  if (!supabase || !email) return null;
+  try {
+    const { data } = await supabase
+      .from('staff_requests')
+      .select('*')
+      .eq('email', email.toLowerCase().trim())
+      .maybeSingle();
+    return data || null;
+  } catch (e) {
+    return null;
+  }
+};
+
+// Role resolver helper based on email patterns & institutional rules
+// Rule 1: krithickrajs.cs25 is super admin
+// Rule 2: @bitsathy.ac.in emails:
+//   - If has student pattern (e.g. .al23, .cs25, numbers before @), it is student
+//   - If NO number, it is staff (or admin)
+// Rule 3: Personal/External emails (e.g. @gmail.com):
+//   - Checked against approved staff requests or user selection
+//   - Otherwise returns 'unassigned' so client presents role choice
+const resolveRoleFromEmail = (email = '') => {
+  const cleanEmail = (email || '').toLowerCase().trim();
+  if (!cleanEmail) return 'student';
+
+  if (cleanEmail === SUPER_ADMIN_EMAIL) {
+    return 'admin';
+  }
+  // Official institutional emails: pattern-based detection
+  if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
+    // Emails with digits in the local part (e.g. .cs25, .al23) = student
+    // Emails without digits = staff
+    const localPart = cleanEmail.split('@')[0];
+    if (/\d/.test(localPart)) {
+      return 'student';
+    }
+    return 'staff';
+  }
+
+  // External/personal emails: role resolved via Supabase in /api/user/profile
+  return 'unassigned';
+};
+
+// Authentication must fail closed. Demo identities are never valid in production.
+const verifyAuth = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const token = authHeader.slice('Bearer '.length).trim();
+  if (!token) return res.status(401).json({ error: 'Authentication required' });
+  if (!supabase) return res.status(503).json({ error: 'Authentication service is not configured' });
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    req.user = user;
+    const { data: profile } = await supabase
+      .from('users')
+      .select('UserType')
+      .eq('id', user.id)
+      .maybeSingle();
+    req.userRole = String(profile?.UserType || resolveRoleFromEmail(user.email)).toLowerCase().trim();
+    return next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Unable to verify session' });
+  }
+};
+
+const requireRoles = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.userRole)) {
+    return res.status(403).json({ error: 'You do not have permission to perform this action' });
+  }
+  return next();
+};
+
+const requireOwnEmail = (req, res, next) => {
+  const requestedEmail = String(req.body?.email || req.query?.email || '').toLowerCase().trim();
+  const authenticatedEmail = String(req.user?.email || '').toLowerCase().trim();
+  if (requestedEmail && requestedEmail !== authenticatedEmail && req.userRole !== 'admin') {
+    return res.status(403).json({ error: 'You can only access your own account' });
+  }
+  return next();
+};
+
+// -------------------------------------------------------------

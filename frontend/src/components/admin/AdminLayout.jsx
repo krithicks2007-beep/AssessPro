@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import StaffDirectory from './StaffDirectory';
 import StudentDirectory from './StudentDirectory';
+import StudentRequests from './StudentRequests';
 import api from '../../api';
 
 export default function AdminDashboard({ user, onSignOut }) {
@@ -122,6 +123,7 @@ export default function AdminDashboard({ user, onSignOut }) {
     { label: 'Dashboard', icon: Home },
     { label: 'Staff Directory', icon: Users },
     { label: 'Student Directory', icon: Users },
+    { label: 'Student Requests', icon: UserPlus },
     { label: 'Staff Requests', icon: UserPlus },
     { label: 'Assessments & Results', icon: ShieldCheck },
     { label: 'Settings', icon: Settings },

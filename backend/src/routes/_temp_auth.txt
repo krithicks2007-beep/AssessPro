@@ -1,0 +1,161 @@
+// 2. AUTHENTICATION ENDPOINTS
+// -------------------------------------------------------------
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Backend database is not initialized' });
+  }
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: password
+    });
+
+    if (error) {
+      return res.status(401).json({ error: error.message });
+    }
+
+    // Determine verified role from users table or pattern
+    let role = resolveRoleFromEmail(cleanEmail);
+    try {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('UserType')
+        .eq('id', data.user.id)
+        .maybeSingle();
+
+      if (profile?.UserType) {
+        role = profile.UserType;
+      }
+    } catch {
+      // Fallback to pattern role
+    }
+
+    // Absolute override for Super Admin
+    if (cleanEmail === SUPER_ADMIN_EMAIL) {
+      role = 'admin';
+    }
+
+    res.json({
+      session: data.session,
+      user: data.user,
+      role: role
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Login failed', details: err.message });
+  }
+});
+
+// Students list from Supabase
+app.get('/api/students', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    const { data: usersData, error } = await supabase
+      .from('users')
+      .select('id, name, mailid, UserType');
+
+    if (error) throw error;
+
+    const studentUsers = (usersData || []).filter(u =>
+      (u.UserType || '').toLowerCase() === 'student'
+    );
+
+    const { data: profilesData } = await supabase.from('students').select('*');
+    const profileMap = new Map();
+    (profilesData || []).forEach(p => { if (p.id) profileMap.set(p.id, p); });
+
+    const studentList = studentUsers.map(u => {
+      const prof = profileMap.get(u.id) || {};
+      return {
+        id: u.id,
+        name: u.name || (u.mailid ? u.mailid.split('@')[0] : 'Student'),
+        email: (u.mailid || '').toLowerCase(),
+        reg_no: prof.reg_no || null,
+        department: prof.department || null,
+        year: prof.year || null,
+        section: prof.section || null,
+        assigned_staff_id: prof.assigned_staff_id || null,
+        assigned_staff_name: prof.assigned_staff_name || null
+      };
+    });
+
+    // Optional filter: only return students assigned to a specific staff member
+    const assignedTo = req.query.assigned_to || '';
+    if (assignedTo) {
+      const effectiveId = assignedTo === 'me' ? req.user.id : assignedTo;
+      return res.json(studentList.filter(s => s.assigned_staff_id === effectiveId));
+    }
+
+    res.json(studentList);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch students', details: err.message });
+  }
+});
+
+
+// Staff assigns students to themselves
+app.post('/api/staff/assign-students', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { staffId, staffName, studentEmails } = req.body;
+  if (!staffName || !Array.isArray(studentEmails)) {
+    return res.status(400).json({ error: 'Staff details and student emails array are required' });
+  }
+
+  try {
+    const { data: usersFound } = await supabase
+      .from('users')
+      .select('id, mailid')
+      .in('mailid', studentEmails.map(e => (e || '').toLowerCase().trim()));
+
+    if (Array.isArray(usersFound) && usersFound.length > 0) {
+      const isUUID = (s) => typeof s === 'string' && s.length === 36 && s.includes('-');
+      for (const u of usersFound) {
+        await supabase.from('students').update({
+          assigned_staff_id: isUUID(staffId) ? staffId : null,
+          assigned_staff_name: staffName
+        }).eq('id', u.id);
+      }
+    }
+
+    res.json({ success: true, count: studentEmails.length, message: `Assigned ${studentEmails.length} student(s) to ${staffName}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to assign students', details: err.message });
+  }
+});
+
+
+// Student checks their assigned staff
+app.get('/api/student/assigned-staff', verifyAuth, requireOwnEmail, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const email = (req.query.email || '').toLowerCase().trim();
+
+  try {
+    const { data: userRec } = await supabase.from('users').select('id').eq('mailid', email).maybeSingle();
+    if (userRec?.id) {
+      const { data: stRec } = await supabase
+        .from('students')
+        .select('assigned_staff_name, assigned_staff_id')
+        .eq('id', userRec.id)
+        .maybeSingle();
+      if (stRec?.assigned_staff_name) {
+        return res.json({
+          staffName: stRec.assigned_staff_name,
+          staffId: stRec.assigned_staff_id,
+          assigned_staff_name: stRec.assigned_staff_name,
+          assigned_staff_id: stRec.assigned_staff_id
+        });
+      }
+    }
+  } catch (e) {}
+
+  res.json({ staffName: null, staffId: null, assigned_staff_name: null, assigned_staff_id: null });
+});
+
+// -------------------------------------------------------------

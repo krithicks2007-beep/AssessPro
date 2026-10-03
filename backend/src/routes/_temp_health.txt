@@ -1,0 +1,13 @@
+// 1. HEALTH CHECK ENDPOINT
+// -------------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'AssessPro Backend API',
+    port: PORT,
+    allowedDomain: ALLOWED_DOMAIN,
+    databaseConnected: Boolean(supabase)
+  });
+});
+
+// -------------------------------------------------------------

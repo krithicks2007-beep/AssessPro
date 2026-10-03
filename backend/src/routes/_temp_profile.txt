@@ -1,0 +1,430 @@
+// 3. USER PROFILE & ROLE AUTHENTICATION ENDPOINTS
+// -------------------------------------------------------------
+app.get('/api/user/profile', verifyAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const cleanEmail = (user.email || '').toLowerCase().trim();
+
+    // 1. Super Admin is always admin
+    if (cleanEmail === SUPER_ADMIN_EMAIL) {
+      let adminProf = {
+        id: user.id,
+        name: user.user_metadata?.full_name || cleanEmail.split('@')[0],
+        mailid: cleanEmail,
+        UserType: 'admin'
+      };
+      if (supabase) {
+        try {
+          const { data } = await supabase.from('users').select('*').eq('mailid', cleanEmail).maybeSingle();
+          if (data) adminProf = data;
+          else await supabase.from('users').upsert(adminProf, { onConflict: 'id' });
+        } catch (e) {}
+      }
+      return res.json({ user, profile: adminProf, role: 'admin' });
+    }
+
+    // 2. Query Supabase users table — query by email first (most reliable unique key)
+    let profile = null;
+    if (supabase) {
+      try {
+        // Try by email first
+        const { data: byEmail } = await supabase
+          .from('users')
+          .select('*')
+          .eq('mailid', cleanEmail)
+          .maybeSingle();
+        if (byEmail) {
+          profile = byEmail;
+        } else if (user.id) {
+          // Fall back to UUID if email lookup yields nothing
+          const { data: byId } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
+          profile = byId || null;
+        }
+      } catch (err) {
+        console.warn('Profile read warning:', err.message);
+      }
+    }
+
+    // 2b. Handle personal/external emails (e.g. @gmail.com):
+    // Even if Supabase PostgreSQL trigger created a row with UserType: 'student',
+    // personal/external users MUST explicitly choose Student or Staff if they are new or have not completed their profile!
+    if (!cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`) && cleanEmail !== SUPER_ADMIN_EMAIL) {
+      // Check if user has explicit approved staff request
+      const staffReq = await getStaffRequestFromDB(cleanEmail);
+      const approvedReq = staffReq?.status === 'approved' ? staffReq : null;
+      if (approvedReq || profile?.UserType === 'staff') {
+        if (profile?.UserType !== 'staff' && supabase) {
+          try { await supabase.from('users').update({ UserType: 'staff' }).eq('mailid', cleanEmail); } catch (e) {}
+        }
+        return res.json({ user, profile: { ...profile, UserType: 'staff' }, role: 'staff' });
+      }
+
+      // Check if user has pending staff request
+      const pendingReq = staffReq?.status === 'pending' ? staffReq : null;
+      if (pendingReq || profile?.UserType === 'pending_staff') {
+        return res.json({ user, profile: null, role: 'pending_staff' });
+      }
+
+      // Check if user has a verified real student profile in public.students (not empty, not GUEST)
+      let hasRealStudentProfile = false;
+      if (supabase && profile) {
+        try {
+          const { data: st } = await supabase
+            .from('students')
+            .select('reg_no, department')
+            .eq('id', profile.id)
+            .maybeSingle();
+          if (st && st.reg_no && !st.reg_no.startsWith('GUEST-')) {
+            hasRealStudentProfile = true;
+          }
+        } catch (e) {}
+      }
+
+      // Only treat as verified student if they have completed their profile or selected student in this session
+      if (hasRealStudentProfile || userRoleOverrides.get(cleanEmail) === 'student') {
+        return res.json({ user, profile, role: 'student' });
+      }
+
+      // Check if the user explicitly chose to be a student
+      if (profile?.UserType === 'student') {
+        // If they already chose student, let them be a student
+        return res.json({ user, profile, role: 'student' });
+      }
+
+      // If they already have ANY valid role assigned (e.g. set via Admin Console), respect it!
+      if (profile?.UserType && profile.UserType !== 'unassigned') {
+        return res.json({ user, profile, role: profile.UserType });
+      }
+
+      // User exists in DB but has not yet made a role choice (truly new/unclassified external user)
+      // Do NOT overwrite to 'unassigned' if they haven't chosen yet — just prompt them
+      // NOTE: do NOT return isDeletedOrNew:true here; that causes App.jsx to wipe all localStorage
+      return res.json({
+        user,
+        profile: null,
+        role: 'unassigned'
+      });
+    }
+
+    // 3. User is NOT found in users table (e.g. was deleted or new sign-up)
+    if (!profile) {
+      // PURGE ANY STALE IN-MEMORY OVERRIDES FOR THIS USER
+
+      // Institutional emails (@bitsathy.ac.in) auto-enroll as student
+      if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) {
+        const institutionalRole = 'student';
+        profile = {
+          id: user.id,
+          name: user.user_metadata?.full_name || cleanEmail.split('@')[0],
+          mailid: cleanEmail,
+          UserType: institutionalRole
+        };
+        try {
+          await supabase.from('users').upsert(profile, { onConflict: 'id' });
+        } catch (upsertErr) {}
+        return res.json({
+          user,
+          profile,
+          role: institutionalRole,
+          isNew: true
+        });
+      }
+
+      // Check if user has an approved or pending staff request
+      const staffReq = await getStaffRequestFromDB(cleanEmail);
+      const approvedReq = staffReq?.status === 'approved' ? staffReq : null;
+      if (approvedReq) {
+        profile = {
+          id: user.id,
+          name: approvedReq.name || user.user_metadata?.full_name || cleanEmail.split('@')[0],
+          mailid: cleanEmail,
+          UserType: 'staff'
+        };
+        try {
+          await supabase.from('users').upsert(profile, { onConflict: 'id' });
+        } catch (e) {}
+        return res.json({ user, profile, role: 'staff' });
+      }
+
+      const pendingReq = staffReq?.status === 'pending' ? staffReq : null;
+      if (pendingReq) {
+        return res.json({ user, profile: null, role: 'pending_staff' });
+      }
+
+      // For ANY external email (e.g. @gmail.com):
+      // NEVER auto-upsert into database!
+      // Must prompt role verification / selection
+      return res.json({
+        user,
+        profile: null,
+        role: 'unassigned',
+        isDeletedOrNew: true
+      });
+    }
+
+    // 4. User exists in database
+    res.json({
+      user,
+      profile,
+      role: profile.UserType || 'unassigned'
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve user profile', details: err.message });
+  }
+});
+
+// Role Choice Endpoint (called from RoleSelectionModal)
+app.post('/api/auth/role-choice', verifyAuth, async (req, res) => {
+  try {
+    const user = req.user;
+    const cleanEmail = (user.email || '').toLowerCase().trim();
+    const name = req.body.name || user.user_metadata?.full_name || cleanEmail.split('@')[0];
+    const role = req.body.role; // 'student' | 'staff'
+
+    if (!cleanEmail) {
+      return res.status(400).json({ error: 'Email parameter required' });
+    }
+
+    if (role === 'student') {
+      const userId = user.id;
+      if (supabase) {
+        try {
+          // Remove any pending staff request for this email
+          await supabase.from('staff_requests').delete().eq('email', cleanEmail);
+          if (userId) {
+             const { error } = await supabase.from('users').upsert({ id: userId, name, mailid: cleanEmail, UserType: 'student' }, { onConflict: 'id' });
+             if (error) console.error('Upsert student role error:', error);
+          }
+        } catch (e) { console.error(e); }
+      }
+      // Persist in-memory override (also persisted to DB above)
+      userRoleOverrides.set(cleanEmail, 'student');
+      return res.json({ success: true, role: 'student', status: 'approved' });
+    } else if (role === 'staff') {
+      if (supabase) {
+        try {
+          // Try upsert first; if it fails due to missing unique constraint, use delete+insert
+          const { error: upsertErr } = await supabase
+            .from('staff_requests')
+            .upsert({ email: cleanEmail, name, status: 'pending' }, { onConflict: 'email' });
+          if (upsertErr) {
+            // Fallback: delete old record then insert fresh
+            await supabase.from('staff_requests').delete().eq('email', cleanEmail);
+            const { error: insertErr } = await supabase
+              .from('staff_requests')
+              .insert({ email: cleanEmail, name, status: 'pending' });
+            if (insertErr) console.warn('staff_requests insert error:', insertErr.message);
+          }
+        } catch (dbErr) {
+          console.warn('staff_requests upsert error:', dbErr.message);
+        }
+      }
+      return res.json({
+        success: true, role: 'pending_staff', status: 'pending',
+        message: 'Staff request submitted to administrator for approval.'
+      });
+    } else {
+      return res.status(400).json({ error: 'Invalid role choice' });
+    }
+
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to process role choice', details: err.message });
+  }
+});
+
+// Staff Request Status (polling from RoleSelectionModal)
+app.get('/api/auth/staff-request-status', verifyAuth, requireOwnEmail, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const cleanEmail = (req.query.email || '').toLowerCase().trim();
+  if (!cleanEmail) return res.status(400).json({ error: 'Email parameter required' });
+
+  try {
+    const { data: dbReq } = await supabase
+      .from('staff_requests').select('status').eq('email', cleanEmail).maybeSingle();
+
+    if (dbReq?.status === 'approved') return res.json({ role: 'staff', status: 'approved' });
+    if (dbReq?.status === 'pending')  return res.json({ role: 'pending_staff', status: 'pending' });
+    if (dbReq?.status === 'rejected') return res.json({ role: 'unassigned', status: 'rejected' });
+
+    const { data: dbUser } = await supabase
+      .from('users').select('id, UserType').eq('mailid', cleanEmail).maybeSingle();
+
+    if (dbUser?.UserType === 'staff')   return res.json({ role: 'staff', status: 'approved' });
+    if (dbUser?.UserType === 'student') {
+      if (cleanEmail.endsWith(`@${ALLOWED_DOMAIN}`)) return res.json({ role: 'student', status: 'approved' });
+
+      const { data: st } = await supabase.from('students').select('reg_no').eq('id', dbUser.id).maybeSingle();
+      if (st?.reg_no && !st.reg_no.startsWith('GUEST-')) {
+        return res.json({ role: 'student', status: 'approved' });
+      }
+      // UserType is student but no verified profile yet — still treat as student
+      return res.json({ role: 'student', status: 'approved' });
+    }
+  } catch (e) {}
+
+  res.json({ role: 'unassigned', status: 'none' });
+});
+
+
+// Admin: Staff Requests List & Actions
+app.get('/api/admin/staff-requests', verifyAuth, requireRoles('admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  try {
+    // Try ordering by created_at; fall back without order if column missing
+    let data, error;
+    ({ data, error } = await supabase.from('staff_requests').select('*').order('created_at', { ascending: false }));
+    if (error) {
+      console.warn('staff_requests order error, retrying without order:', error.message);
+      ({ data, error } = await supabase.from('staff_requests').select('*'));
+    }
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('Failed to fetch staff requests:', err.message);
+    res.status(500).json({ error: 'Failed to fetch staff requests', details: err.message });
+  }
+});
+
+app.post('/api/admin/staff-requests/:id/approve', verifyAuth, requireRoles('admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const queryStr = isUUID ? `id.eq.${id},email.eq.${id.toLowerCase()}` : `email.eq.${id.toLowerCase()}`;
+
+  const { data: targetReq } = await supabase.from('staff_requests')
+    .select('*').or(queryStr).maybeSingle();
+  if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
+
+  const cleanEmail = targetReq.email.toLowerCase().trim();
+  const { error: approvalError } = await supabase
+    .from('staff_requests')
+    .update({ status: 'approved' })
+    .eq('id', targetReq.id);
+  if (approvalError) {
+    return res.status(500).json({ error: 'Failed to approve staff request', details: approvalError.message });
+  }
+  try {
+    let userId = null;
+    try {
+      const { data: { users } } = await supabase.auth.admin.listUsers();
+      const authMatch = users?.find(u => u.email.toLowerCase() === cleanEmail);
+      if (authMatch) userId = authMatch.id;
+    } catch (e) {}
+    if (!userId) {
+      const { data: ex } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+      if (ex) userId = ex.id;
+    }
+    if (userId) {
+      await supabase.from('users').upsert({ id: userId, name: targetReq.name, mailid: cleanEmail, UserType: 'staff' }, { onConflict: 'id' });
+    }
+  } catch (e) {}
+
+  res.json({ success: true, message: `Staff privileges approved for ${targetReq.email}` });
+});
+
+
+app.post('/api/admin/staff-requests/:id/reject', verifyAuth, requireRoles('admin'), async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id } = req.params;
+
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const queryStr = isUUID ? `id.eq.${id},email.eq.${id.toLowerCase()}` : `email.eq.${id.toLowerCase()}`;
+
+  const { data: targetReq } = await supabase.from('staff_requests')
+    .select('*').or(queryStr).maybeSingle();
+  if (!targetReq) return res.status(404).json({ error: 'Staff request not found' });
+
+  const cleanEmail = targetReq.email.toLowerCase().trim();
+  await supabase.from('staff_requests').update({ status: 'rejected' }).eq('id', targetReq.id);
+  try { await supabase.from('users').update({ UserType: 'unassigned' }).eq('mailid', cleanEmail); } catch (e) {}
+
+  res.json({ success: true, message: `Staff request rejected for ${targetReq.email}` });
+});
+
+
+// Student Profile Endpoints
+app.get('/api/student/profile', verifyAuth, requireOwnEmail, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const email = (req.query.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Email parameter required' });
+
+  try {
+    const { data: userRecord } = await supabase
+      .from('users')
+      .select('id, name, mailid')
+      .eq('mailid', email)
+      .maybeSingle();
+
+    if (userRecord) {
+      const { data: studentRecord } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', userRecord.id)
+        .maybeSingle();
+
+      if (studentRecord) {
+        return res.json({ ...studentRecord, name: userRecord.name, email: userRecord.mailid });
+      }
+    }
+  } catch (dbErr) {
+    console.warn('Student profile lookup error:', dbErr.message);
+  }
+
+  return res.json(null);
+});
+
+
+app.post('/api/student/profile', verifyAuth, requireOwnEmail, async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not connected' });
+  const { id, email, name, reg_no, department, year, section, dob, phone } = req.body;
+  if (!email || !reg_no) {
+    return res.status(400).json({ error: 'Email and Register Number are required' });
+  }
+
+  const cleanEmail = email.toLowerCase().trim();
+  userRoleOverrides.set(cleanEmail, 'student');
+
+  let { data: userRecord } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+  let targetUserId = userRecord?.id || req.user.id;
+
+  if (!targetUserId) {
+    // Must have the auth user id to create the FK-linked users row
+    const authUserId = id || req.user.id;
+    if (authUserId) {
+      const { error: uErr } = await supabase.from('users').upsert({
+        id: authUserId, name: name || cleanEmail.split('@')[0], mailid: cleanEmail, UserType: 'student'
+      });
+      if (!uErr) targetUserId = authUserId;
+    }
+  } else {
+    // Update name if changed
+    try {
+      await supabase.from('users').update({ name: name || cleanEmail.split('@')[0] }).eq('id', targetUserId);
+    } catch (e) {}
+  }
+
+  if (!targetUserId) {
+    return res.status(400).json({ error: 'Could not locate or create user account' });
+  }
+
+  const { error } = await supabase.from('students').upsert({
+    id: targetUserId,
+    reg_no: reg_no.trim().toUpperCase(),
+    department: department || 'Computer Science & Engineering',
+    year: year || 'II Year',
+    section: section || 'A',
+    dob: dob || null,
+    phone: phone || null
+  });
+
+  if (error) return res.status(500).json({ error: 'Failed to save student profile: ' + error.message });
+  res.status(200).json({ message: 'Profile saved successfully', role: 'student' });
+});
+
+
+// -------------------------------------------------------------
