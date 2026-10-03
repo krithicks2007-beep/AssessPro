@@ -362,7 +362,7 @@ export default function AdminDashboard({ user, onSignOut }) {
                                   <button
                                     onClick={() => handleApproveStaff(req.id, req.email)}
                                     style={{
-                                      background: '#10b981',
+                                      background: '#1d72fe',
                                       color: '#fff',
                                       border: 'none',
                                       borderRadius: '6px',

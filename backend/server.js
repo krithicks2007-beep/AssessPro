@@ -971,6 +971,12 @@ app.get('/api/tests', verifyAuth, async (req, res) => {
     try {
       const testIds = data.map(t => t.id);
       if (testIds.length > 0) {
+        let globalStudentCount = 1;
+        try {
+          const { count } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('UserType', 'student');
+          if (count) globalStudentCount = count;
+        } catch (e) {}
+
         const { data: subsData } = await supabase
           .from('test_submissions')
           .select('test_id, score, max_score')
@@ -984,7 +990,10 @@ app.get('/api/tests', verifyAuth, async (req, res) => {
              aggs[s.test_id].count++;
           });
           for (const tId in aggs) {
-             avgMap[tId] = aggs[tId].count > 0 ? Math.round(aggs[tId].totalPct / aggs[tId].count) : 0;
+             const tObj = data.find(t => t.id === tId);
+             const isUniversal = !tObj || !tObj.assigned_students || tObj.assigned_students.length === 0;
+             const denominator = isUniversal ? globalStudentCount : tObj.assigned_students.length;
+             avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
           }
         }
       }
@@ -1062,7 +1071,8 @@ app.post('/api/tests', verifyAuth, requireRoles('staff', 'admin'), async (req, r
     const {
       title, groupId, testNumber, durationMinutes, testType, status,
       startTime, endTime, questions, maxScore, userId, assignedStudents,
-      allowLatecomers, uploaded_file_name, uploadedFileName, created_by_email, userEmail
+      allowLatecomers, lateLimitMinutes, uploaded_file_name, uploadedFileName, created_by_email, userEmail,
+      auto_launch
     } = req.body;
 
     if (!title || !title.trim()) {
@@ -1090,12 +1100,14 @@ app.post('/api/tests', verifyAuth, requireRoles('staff', 'admin'), async (req, r
       start_time: startTime || new Date().toISOString(),
       end_time: endTime || new Date(Date.now() + 86400000).toISOString(),
       allow_latecomers: allowLatecomers !== false,
+      late_limit_minutes: lateLimitMinutes,
       questions: cleanQuestions,
       total_questions: cleanQuestions.length,
       assigned_students: assignedList,
       created_by_email: creatorEmail,
       uploaded_file_name: filename,
-      test_number: parseInt(testNumber) || 1
+      test_number: parseInt(testNumber) || 1,
+      auto_launch: auto_launch || false
     };
     if (cleanUserId) payload.created_by = cleanUserId;
 
@@ -1139,6 +1151,8 @@ app.put('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), async (req
     if (u.startTime       !== undefined) payload.scheduled_date   = u.startTime;
     if (u.endTime         !== undefined) payload.end_time         = u.endTime;
     if (u.allowLatecomers !== undefined) payload.allow_latecomers = u.allowLatecomers;
+    if (u.lateLimitMinutes!== undefined) payload.late_limit_minutes = u.lateLimitMinutes;
+    if (u.auto_launch     !== undefined) payload.auto_launch      = u.auto_launch;
     if (u.assignedStudents!== undefined) payload.assigned_students= u.assignedStudents;
     if (u.questions       !== undefined) payload.questions        = u.questions;
     if (u.questions       !== undefined) payload.total_questions  = u.questions.length;

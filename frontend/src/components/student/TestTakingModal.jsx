@@ -323,6 +323,18 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
   const currentQ = questions[currentQIndex] || questions[0];
   const isTimeCritical = timeLeftSeconds < 300; // < 5 mins
   const isLocked = Boolean(test.start_time && new Date(test.start_time).getTime() > sessionStartTime);
+  
+  let isLate = false;
+  let lateMsg = '';
+  if (test.start_time && test.late_limit_minutes !== null && test.late_limit_minutes !== undefined) {
+    const limitMs = Number(test.late_limit_minutes) * 60 * 1000;
+    if (sessionStartTime > new Date(test.start_time).getTime() + limitMs) {
+      isLate = true;
+      lateMsg = Number(test.late_limit_minutes) === 0 
+        ? "Late entry is strictly prohibited for this test."
+        : `The grace period of ${test.late_limit_minutes} minutes has expired.`;
+    }
+  }
 
   return (
     <div 
@@ -465,6 +477,35 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
                     Please return at the scheduled time to take this assessment.
                   </p>
                 </div>
+              ) : isLate ? (
+                <div style={{
+                  background: '#fff1f2',
+                  border: '1.5px solid #fecdd3',
+                  borderRadius: '12px',
+                  padding: '1.75rem',
+                  textAlign: 'center',
+                  marginBottom: '1.5rem'
+                }}>
+                  <div style={{
+                    width: '50px',
+                    height: '50px',
+                    borderRadius: '50%',
+                    background: '#ffe4e6',
+                    color: '#e11d48',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 0.85rem auto'
+                  }}>
+                    <Clock size={26} />
+                  </div>
+                  <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#9f1239', marginBottom: '0.4rem' }}>
+                    Entry Period Expired
+                  </h4>
+                  <p style={{ fontSize: '0.84rem', color: '#be123c', margin: '0 0 1rem 0' }}>
+                    {lateMsg}
+                  </p>
+                </div>
               ) : (
                 /* Proctoring Warning Box */
                 <div style={{
@@ -522,6 +563,26 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
                   >
                     <Lock size={16} />
                     <span>Test Locked Until Start Time</span>
+                  </button>
+                ) : isLate ? (
+                  <button
+                    disabled
+                    style={{
+                      padding: '0.7rem 1.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid #fecdd3',
+                      background: '#fff1f2',
+                      color: '#e11d48',
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      cursor: 'not-allowed',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    <X size={16} />
+                    <span>Cannot Join Test</span>
                   </button>
                 ) : questions.length === 0 ? (
                   <button
@@ -639,7 +700,7 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
                     padding: '0.45rem 1rem',
                     borderRadius: '8px',
                     border: 'none',
-                    background: '#10b981',
+                    background: '#1d72fe',
                     color: '#ffffff',
                     fontSize: '0.8rem',
                     fontWeight: 700,
@@ -864,7 +925,7 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
                         padding: '0.6rem 1.5rem',
                         borderRadius: '8px',
                         border: 'none',
-                        background: '#10b981',
+                        background: '#1d72fe',
                         color: '#ffffff',
                         fontWeight: 700,
                         fontSize: '0.82rem',

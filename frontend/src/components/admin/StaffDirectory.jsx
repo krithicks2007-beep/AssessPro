@@ -257,7 +257,7 @@ export default function StaffDirectory({ allUsers }) {
               <button 
                 onClick={handleSaveStaff} 
                 disabled={isSaving}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#10b981', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1d72fe', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
               >
                 <Save size={16} />
                 {isSaving ? 'Saving...' : 'Save Changes'}

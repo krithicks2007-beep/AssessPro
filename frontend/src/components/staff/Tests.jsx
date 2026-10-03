@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Clock,
   HelpCircle,
@@ -6,8 +6,65 @@ import {
   Users,
   Plus,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Timer
 } from 'lucide-react';
+
+function AutoLaunchTimer({ test, onTriggerLaunch }) {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    if (!test.auto_launch || !test.start_time || test.status !== 'draft') return;
+
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const target = new Date(test.start_time).getTime();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        clearInterval(interval);
+        setTimeLeft('Launching...');
+        onTriggerLaunch(test);
+      } else {
+        const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((diff % (1000 * 60)) / 1000);
+
+        const hStr = h.toString().padStart(2, '0');
+        const mStr = m.toString().padStart(2, '0');
+        const sStr = s.toString().padStart(2, '0');
+        
+        if (d > 0) {
+          setTimeLeft(`${d}d ${hStr}h ${mStr}m`); // hide seconds if days are > 0 to save space, or keep it
+        } else if (h > 0) {
+          setTimeLeft(`${hStr}h ${mStr}m ${sStr}s`);
+        } else {
+          setTimeLeft(`${mStr}m ${sStr}s`);
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [test, onTriggerLaunch]);
+
+  if (!test.auto_launch || !test.start_time || test.status !== 'draft') return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', padding: '0.75rem 0.5rem', background: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '12px', color: '#1e3a8a', fontSize: '0.75rem', fontWeight: 800, minWidth: '105px', textAlign: 'center', alignSelf: 'center', flexShrink: 0 }}>
+      <Timer size={20} color="#2563eb" style={{ flexShrink: 0 }} />
+      {timeLeft === 'Launching...' ? (
+        <span style={{ lineHeight: 1.2 }}>Launching...</span>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+          <span style={{ color: '#3b82f6', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Launch in</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '0.5px', fontSize: '0.8rem' }}>{timeLeft}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 /**
  * Staff Tests Tab
@@ -167,23 +224,29 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                   {t.title}
                 </h3>
 
-                <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '0.45rem', marginBottom: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                    <Clock size={15} color="#1d72fe" />
-                    <span>Duration: <strong>{t.duration_minutes || 30} Minutes</strong></span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <Clock size={15} color="#1d72fe" />
+                      <span>Duration: <strong>{t.duration_minutes || 30} Minutes</strong></span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <HelpCircle size={15} color="#10b981" />
+                      <span>Questions: <strong>{t.total_questions || t.questions?.length || 10} MCQs ({t.max_score || 100} Marks)</strong></span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <Calendar size={15} color="#f59e0b" />
+                      <span>Starts: <strong>{t.start_time ? new Date(t.start_time).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : 'Available Immediately'}</strong></span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <Users size={15} color="#8b5cf6" />
+                      <span>Assigned to: <strong style={{ color: t.assigned_students && t.assigned_students.length > 0 ? '#7c3aed' : '#059669' }}>{t.assigned_students && t.assigned_students.length > 0 ? `${t.assigned_students.length} Selected Student(s)` : 'All Students (Universal)'}</strong></span>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                    <HelpCircle size={15} color="#10b981" />
-                    <span>Questions: <strong>{t.total_questions || t.questions?.length || 10} MCQs ({t.max_score || 100} Marks)</strong></span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                    <Calendar size={15} color="#f59e0b" />
-                    <span>Starts: <strong>{t.start_time ? new Date(t.start_time).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : 'Available Immediately'}</strong></span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                    <Users size={15} color="#8b5cf6" />
-                    <span>Assigned to: <strong style={{ color: t.assigned_students && t.assigned_students.length > 0 ? '#7c3aed' : '#059669' }}>{t.assigned_students && t.assigned_students.length > 0 ? `${t.assigned_students.length} Selected Student(s)` : 'All Students (Universal)'}</strong></span>
-                  </div>
+
+                  {t.status === 'draft' && t.auto_launch && (
+                    <AutoLaunchTimer test={t} onTriggerLaunch={onQuickLaunch} />
+                  )}
                 </div>
               </div>
 
@@ -215,7 +278,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                       padding: '0.65rem',
                       borderRadius: '8px',
                       border: 'none',
-                      background: '#10b981',
+                      background: '#1d72fe',
                       color: '#ffffff',
                       fontSize: '0.84rem',
                       fontWeight: 700,

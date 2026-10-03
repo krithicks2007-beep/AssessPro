@@ -297,6 +297,8 @@ export const api = {
           if (testPayload.startTime !== undefined) payload.start_time = testPayload.startTime;
           if (testPayload.endTime !== undefined) payload.end_time = testPayload.endTime;
           if (testPayload.allowLatecomers !== undefined) payload.allow_latecomers = testPayload.allowLatecomers;
+          if (testPayload.lateLimitMinutes !== undefined) payload.late_limit_minutes = testPayload.lateLimitMinutes;
+          if (testPayload.auto_launch !== undefined) payload.auto_launch = testPayload.auto_launch;
           if (testPayload.uploadedFileName || testPayload.uploaded_file_name) payload.uploaded_file_name = testPayload.uploadedFileName || testPayload.uploaded_file_name;
 
           const { data } = await supabase
@@ -364,6 +366,12 @@ export const api = {
           try {
             const testIds = data.map(t => t.id);
             if (testIds.length > 0) {
+              let globalStudentCount = 1;
+              try {
+                const { count } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('UserType', 'student');
+                if (count) globalStudentCount = count;
+              } catch (e) {}
+
               const { data: subsData } = await supabase
                 .from('test_submissions')
                 .select('test_id, score, max_score')
@@ -377,7 +385,10 @@ export const api = {
                    aggs[s.test_id].count++;
                 });
                 for (const tId in aggs) {
-                   avgMap[tId] = aggs[tId].count > 0 ? Math.round(aggs[tId].totalPct / aggs[tId].count) : 0;
+                   const tObj = data.find(t => t.id === tId);
+                   const isUniversal = !tObj || !tObj.assigned_students || tObj.assigned_students.length === 0;
+                   const denominator = isUniversal ? globalStudentCount : tObj.assigned_students.length;
+                   avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
                 }
               }
             }
@@ -483,9 +494,11 @@ export const api = {
             start_time: testData.startTime || new Date().toISOString(),
             end_time: testData.endTime || new Date(Date.now() + 86400000).toISOString(),
             allow_latecomers: testData.allowLatecomers !== false,
+            late_limit_minutes: testData.lateLimitMinutes,
             questions: Array.isArray(testData.questions) ? testData.questions : [],
             total_questions: Array.isArray(testData.questions) ? testData.questions.length : 10,
             uploaded_file_name: testData.uploadedFileName || testData.uploaded_file_name || null,
+            auto_launch: testData.auto_launch || false,
             assigned_students: Array.isArray(testData.assignedStudents) ? testData.assignedStudents : []
           };
           if (isValidUUID(testData.userId)) {

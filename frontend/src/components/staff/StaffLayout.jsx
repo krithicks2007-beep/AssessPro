@@ -19,6 +19,7 @@ import ViewSubmissionsModal from './ViewSubmissionsModal';
 import ConfigureTestPage from './ConfigureTestPage';
 import StaffProfile from './StaffProfile';
 import StaffOnboardingModal from './StaffOnboardingModal';
+import CreateTestModal from './CreateTestModal';
 
 // Tab Components
 import Dashboard from './Dashboard';
@@ -49,6 +50,9 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   // Group Form States
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [editingGroupName, setEditingGroupName] = useState('');
+  
+  // Modals state
+  const [showCreateTestModal, setShowCreateTestModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupCategory, setNewGroupCategory] = useState('Core Subjects');
 
@@ -176,16 +180,17 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
 
   const [selectedDraftTest, setSelectedDraftTest] = useState(null);
 
-  // Test Creation Flow (Draft)
-  const handleCreateDraft = async () => {
-    const title = window.prompt("Enter the name for the new assessment:");
-    if (!title || !title.trim()) return;
+  // Test Creation Flow (Modal)
+  const handleCreateDraft = () => {
+    setShowCreateTestModal(true);
+  };
 
+  const executeCreateTest = async (testData, shouldLaunch) => {
     try {
-      const validGroupId = (groups && groups[0]?.id) || newTestGroupId;
-      await api.createTest({
-        title: title.trim(),
-        groupId: validGroupId,
+      const createdTest = await api.createTest({
+        title: testData.title.trim(),
+        groupId: testData.groupId,
+        durationMinutes: testData.durationMinutes,
         status: 'draft',
         questions: [],
         userId: user?.id,
@@ -193,11 +198,30 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         created_by: user?.id,
         created_by_email: user?.email
       });
-      notifySuccess('Draft assessment created! Configure it to launch.');
+      
+      setShowCreateTestModal(false);
       await loadData();
+
+      if (shouldLaunch) {
+        notifySuccess('Draft created! Proceeding to configuration.');
+        // Set it as selected to open ConfigureTestPage immediately
+        setSelectedDraftTest(createdTest);
+        setActiveTab('Tests');
+      } else {
+        notifySuccess('Draft assessment saved! It is now in your Tests list.');
+        setActiveTab('Tests');
+      }
     } catch (err) {
-      notifyError(err.message || 'Failed to create draft test');
+      notifyError(err.message || 'Failed to create test');
     }
+  };
+
+  const handleSaveProgress = (testData) => {
+    executeCreateTest(testData, false);
+  };
+
+  const handleLaunchNow = (testData) => {
+    executeCreateTest(testData, true);
   };
 
   const handleUpdateTest = async (payload) => {
@@ -480,6 +504,14 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           await loadData();
           notifySuccess('Profile saved! Your department and details are now updated.');
         }}
+      />
+
+      <CreateTestModal
+        isOpen={showCreateTestModal}
+        onClose={() => setShowCreateTestModal(false)}
+        groups={safeGroups}
+        onSave={handleSaveProgress}
+        onLaunch={handleLaunchNow}
       />
 
       <ViewSubmissionsModal

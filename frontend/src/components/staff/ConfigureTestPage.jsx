@@ -63,11 +63,51 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
     existingTest?.assigned_students || []
   );
   const [studentSearch, setStudentSearch] = useState('');
+  const [notFoundEmails, setNotFoundEmails] = useState([]);
+  const [showStudentSelectionModal, setShowStudentSelectionModal] = useState(false);
   
+  const handleBulkAdd = (text) => {
+    const tokens = text.split(/[\s,;]+/).map(t => t.trim().toLowerCase()).filter(Boolean);
+    const newSelected = new Set(selectedStudentEmails);
+    const notFound = [];
+    let addedCount = 0;
+
+    tokens.forEach(token => {
+      // Find by email or exact full name match
+      const student = availableStudents.find(s => 
+        (s.email && s.email.toLowerCase() === token) || 
+        (s.full_name && s.full_name.toLowerCase() === token)
+      );
+      
+      if (student) {
+        newSelected.add(student.email);
+        addedCount++;
+      } else if (token.includes('@')) {
+        // If it looks like an email but wasn't found
+        notFound.push(token);
+      }
+    });
+
+    if (addedCount > 0 || notFound.length > 0) {
+      setSelectedStudentEmails(Array.from(newSelected));
+      setNotFoundEmails(notFound);
+      setStudentSearch(''); // Clear search on successful bulk add
+    } else {
+      setStudentSearch(text); // Normal search behavior
+    }
+  };
   const [uploadedFileName, setUploadedFileName] = useState(initialFileName);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [allowLatecomers, setAllowLatecomers] = useState(existingTest?.allow_latecomers !== false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [allowAnytime, setAllowAnytime] = useState(
+    existingTest ? (existingTest.late_limit_minutes === null || existingTest.late_limit_minutes === undefined) : true
+  );
+  const [lateLimitDropdown, setLateLimitDropdown] = useState(
+    [5, 10, 15].includes(existingTest?.late_limit_minutes) ? String(existingTest?.late_limit_minutes) : (existingTest?.late_limit_minutes ? 'custom' : '10')
+  );
+  const [lateLimitCustom, setLateLimitCustom] = useState(existingTest?.late_limit_minutes || 10);
+  const [autoLaunch, setAutoLaunch] = useState(existingTest?.auto_launch || false);
   const [detectedFileCount, setDetectedFileCount] = useState(initialQuestions.length || null);
   const [mismatchError, setMismatchError] = useState(null);
   const [questions, setQuestions] = useState(initialQuestions);
@@ -239,21 +279,39 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
 
   const handleSubmit = async (e, targetStatus = 'published') => {
     e.preventDefault();
-    if (!title.trim()) {
-      setErrorMsg('Please enter a test title.');
-      return;
-    }
+    const newErrors = {};
+
+    if (!title.trim()) newErrors.title = 'Please enter a test title.';
     if (mismatchError) {
-      setErrorMsg(`Validation Alert: The uploaded file contains ${mismatchError.fileCount} questions, but configured for ${mismatchError.selectedCount}.`);
-      return;
+      newErrors.file = `Validation Alert: The uploaded file contains ${mismatchError.fileCount} questions, but configured for ${mismatchError.selectedCount}.`;
     }
 
     const qCount = parseInt(questionCountType) || questions.length || 10;
     const dur = parseInt(durationMinutes) || 5;
     
-    if (dur < 1) return setErrorMsg('Duration must be at least 1 minute.');
-    if (qCount < 1) return setErrorMsg('Please enter at least 1 question.');
-    if (assignTarget === 'specific' && selectedStudentEmails.length === 0) return setErrorMsg('Please select at least one student.');
+    if (dur < 1) newErrors.duration = 'Duration must be at least 1 minute.';
+    if (qCount < 1) newErrors.questions = 'Please enter at least 1 question.';
+    if (assignTarget === 'specific' && selectedStudentEmails.length === 0) {
+      newErrors.target = 'Please select at least one student.';
+    }
+
+    if (autoLaunch) {
+      if (!startTime) {
+        newErrors.startTime = 'Start time is required for auto-launch.';
+      } else {
+        const startDateTime = new Date(startTime);
+        if (startDateTime <= new Date()) {
+          newErrors.startTime = 'Start time must be in the future to auto-launch.';
+        }
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setFieldErrors(newErrors);
+      return;
+    }
+    
+    setFieldErrors({});
 
     // Always use uploaded file questions when available; only fallback to sample generator if no file uploaded
     const finalQuestions = questions && questions.length > 0 ? questions : generateQuestions(qCount);
@@ -272,7 +330,9 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
         durationMinutes: dur,
         testType: 'test',
         status: targetStatus,
-        allowLatecomers: allowLatecomers,
+        auto_launch: autoLaunch,
+        allowLatecomers: true, // We always allow latecomers conceptually, we just restrict by lateLimitMinutes
+        lateLimitMinutes: allowAnytime ? null : (lateLimitDropdown === 'custom' ? lateLimitCustom : Number(lateLimitDropdown)),
         startTime: new Date(finalStartTime).toISOString(),
         endTime: new Date(finalEndTime).toISOString(),
         questions: finalQuestions,
@@ -323,10 +383,11 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>Test Title *</label>
               <input 
                 value={title} 
-                onChange={e => setTitle(e.target.value)} 
+                onChange={e => { setTitle(e.target.value); setFieldErrors(prev => ({...prev, title: null})); }} 
                 placeholder="e.g. Midterm Physics"
-                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem' }} 
+                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: `1px solid ${fieldErrors.title ? '#ef4444' : '#e2e8f0'}`, background: fieldErrors.title ? '#fef2f2' : '#f8fafc', fontSize: '0.95rem' }} 
               />
+              {fieldErrors.title && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '0.4rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}><AlertTriangle size={14} />{fieldErrors.title}</div>}
             </div>
 
             {/* Field Row */}
@@ -348,9 +409,10 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
                 <input 
                   type="number" 
                   value={durationMinutes} 
-                  onChange={e => setDurationMinutes(e.target.value)} 
-                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem' }} 
+                  onChange={e => { setDurationMinutes(e.target.value); setFieldErrors(prev => ({...prev, duration: null})); }} 
+                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: `1px solid ${fieldErrors.duration ? '#ef4444' : '#e2e8f0'}`, background: fieldErrors.duration ? '#fef2f2' : '#f8fafc', fontSize: '0.95rem' }} 
                 />
+                {fieldErrors.duration && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '0.4rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}><AlertTriangle size={14} />{fieldErrors.duration}</div>}
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>Number of Questions *</label>
@@ -385,10 +447,12 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
                     <span>⚠️ Mismatch: Uploaded file has <strong>{mismatchError.fileCount} questions</strong>, but <strong>{mismatchError.selectedCount} questions</strong> selected.</span>
                   </div>
                 )}
+                  {fieldErrors.questions && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '0.4rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}><AlertTriangle size={14} />{fieldErrors.questions}</div>}
+                  {fieldErrors.file && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '0.4rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}><AlertTriangle size={14} />{fieldErrors.file}</div>}
+                </div>
               </div>
-            </div>
 
-          </div>
+            </div>
         </div>
 
         {/* Scheduling Container */}
@@ -401,9 +465,10 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
               <input 
                 type="datetime-local" 
                 value={startTime} 
-                onChange={e => setStartTime(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem' }}
+                onChange={e => { setStartTime(e.target.value); setFieldErrors(prev => ({...prev, startTime: null})); }}
+                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: `1px solid ${fieldErrors.startTime ? '#ef4444' : '#e2e8f0'}`, background: fieldErrors.startTime ? '#fef2f2' : '#f8fafc', fontSize: '0.95rem' }}
               />
+              {fieldErrors.startTime && <div style={{ color: '#ef4444', fontSize: '0.82rem', marginTop: '0.4rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem' }}><AlertTriangle size={14} />{fieldErrors.startTime}</div>}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>End Time (Deadline) *</label>
@@ -415,9 +480,46 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
               />
             </div>
           </div>
-          <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input type="checkbox" id="latecomers" checked={allowLatecomers} onChange={e => setAllowLatecomers(e.target.checked)} />
-            <label htmlFor="latecomers" style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>Allow latecomers (time will be strictly cut off at deadline)</label>
+          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#eff6ff', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+              <input type="checkbox" id="autoLaunch" checked={autoLaunch} onChange={e => { setAutoLaunch(e.target.checked); setFieldErrors(prev => ({...prev, startTime: null})); }} style={{ width: '16px', height: '16px', accentColor: '#1d72fe', cursor: 'pointer' }} />
+              <label htmlFor="autoLaunch" style={{ fontSize: '0.9rem', color: '#1e3a8a', fontWeight: 700, cursor: 'pointer' }}>Automatically launch this test at the specified Start Time</label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <input type="checkbox" id="allowAnytime" checked={allowAnytime} onChange={e => setAllowAnytime(e.target.checked)} />
+              <label htmlFor="allowAnytime" style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 500 }}>Allow entry at any time before deadline</label>
+            </div>
+            
+            {!allowAnytime && (
+              <div style={{ marginLeft: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.1rem' }}>Late Entry Limit</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <select
+                    value={lateLimitDropdown}
+                    onChange={e => setLateLimitDropdown(e.target.value)}
+                    style={{ width: '130px', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+                  >
+                    <option value="5">5 Minutes</option>
+                    <option value="10">10 Minutes</option>
+                    <option value="15">15 Minutes</option>
+                    <option value="custom">Custom...</option>
+                  </select>
+                  
+                  {lateLimitDropdown === 'custom' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <input 
+                        type="number" 
+                        min="0"
+                        value={lateLimitCustom} 
+                        onChange={e => setLateLimitCustom(Number(e.target.value))}
+                        style={{ width: '80px', padding: '0.5rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                      />
+                      <span style={{ fontSize: '0.8rem', color: '#64748b' }}>minutes</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -426,38 +528,38 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
           <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#1e293b', marginBottom: '1.5rem' }}>Target Audience</h2>
           <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-              <input type="radio" checked={assignTarget === 'all'} onChange={() => setAssignTarget('all')} />
+              <input type="radio" checked={assignTarget === 'all'} onChange={() => { setAssignTarget('all'); setFieldErrors(prev => ({...prev, target: null})); }} />
               <span style={{ fontSize: '0.95rem', fontWeight: 500, color: '#334155' }}>All Students</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-              <input type="radio" checked={assignTarget === 'specific'} onChange={() => setAssignTarget('specific')} />
+              <input 
+                type="radio" 
+                checked={assignTarget === 'specific'} 
+                onChange={() => {
+                  setAssignTarget('specific');
+                  setFieldErrors(prev => ({...prev, target: null}));
+                  setShowStudentSelectionModal(true);
+                }} 
+              />
               <span style={{ fontSize: '0.95rem', fontWeight: 500, color: '#334155' }}>Specific Students</span>
             </label>
           </div>
+          {fieldErrors.target && <div style={{ color: '#ef4444', fontSize: '0.85rem', marginBottom: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}><AlertTriangle size={15} />{fieldErrors.target}</div>}
           {assignTarget === 'specific' && (
-            <div style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <input 
-                type="text" 
-                placeholder="Search student by name or email..." 
-                value={studentSearch} 
-                onChange={(e) => setStudentSearch(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem', background: '#fff' }}
-              />
-              <div style={{ maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {availableStudents.filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()) || s.email?.toLowerCase().includes(studentSearch.toLowerCase())).map(student => (
-                  <label key={student.email} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', background: '#fff', borderRadius: '6px', border: '1px solid #e2e8f0', cursor: 'pointer' }}>
-                    <input 
-                      type="checkbox" 
-                      checked={selectedStudentEmails.includes(student.email)}
-                      onChange={(e) => {
-                        if (e.target.checked) setSelectedStudentEmails(prev => [...prev, student.email]);
-                        else setSelectedStudentEmails(prev => prev.filter(email => email !== student.email));
-                      }}
-                    />
-                    <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{student.full_name} ({student.email})</span>
-                  </label>
-                ))}
+            <div style={{ background: '#f8fafc', padding: '1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b', display: 'block', marginBottom: '0.25rem' }}>Specific Students Selected</span>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>{selectedStudentEmails.length} students currently selected</span>
               </div>
+              <button
+                onClick={(e) => { e.preventDefault(); setShowStudentSelectionModal(true); }}
+                style={{
+                  padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none', background: '#1d72fe', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                }}
+              >
+                <Users size={16} />
+                Manage Students
+              </button>
             </div>
           )}
         </div>
@@ -595,13 +697,26 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
           </div>
         </div>
 
+        {Object.keys(fieldErrors).length > 0 && (
+          <div style={{ padding: '1.25rem', background: '#fef2f2', color: '#b91c1c', borderRadius: '12px', marginTop: '1rem', border: '1px solid #f87171', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+              <AlertTriangle size={18} /> Cannot Save Assessment
+            </div>
+            <ul style={{ margin: 0, paddingLeft: '1.75rem', fontSize: '0.9rem', fontWeight: 600 }}>
+              {Object.values(fieldErrors).map((err, i) => (
+                <li key={i}>{err}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem', paddingBottom: '3rem' }}>
           <button
             onClick={(e) => handleSubmit(e, 'draft')}
             disabled={loading}
             style={{
-              padding: '0.85rem 1.5rem', borderRadius: '8px', border: '1px solid #10b981', background: '#ecfdf5', color: '#10b981', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
+              padding: '0.85rem 1.5rem', borderRadius: '8px', border: '1px solid #1d72fe', background: '#eff6ff', color: '#1d72fe', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
             }}
           >
             <Clock size={18} />
@@ -620,6 +735,193 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
         </div>
 
       </div>
+
+      {showStudentSelectionModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+          background: 'rgba(15, 23, 42, 0.7)', zIndex: 9999, display: 'flex',
+          justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '16px', width: '90%', maxWidth: '900px', height: '90vh',
+            display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden'
+          }}>
+            <div style={{ padding: '1.5rem 2rem', background: 'linear-gradient(135deg, #01183eff 0%, #08349bff 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '0.5rem', borderRadius: '8px' }}>
+                  <Users size={20} color="#60a5fa" />
+                </div>
+                <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.01em' }}>Manage Target Audience</h2>
+              </div>
+              <button 
+                onClick={() => setShowStudentSelectionModal(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.75rem', color: '#94a3b8', cursor: 'pointer', transition: 'color 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onMouseOver={e => e.currentTarget.style.color = '#fff'}
+                onMouseOut={e => e.currentTarget.style.color = '#94a3b8'}
+              >
+                &times;
+              </button>
+            </div>
+            
+            <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+              
+              {/* Left Pane - Search and Available */}
+              <div style={{ flex: 1, padding: '2rem', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <p style={{ marginBottom: '1.5rem', color: '#475569', fontSize: '0.95rem' }}>
+                  Search for a student by name/email, or paste a list of emails (separated by spaces, commas, or newlines) into the search box below to instantly select them.
+                </p>
+                
+                <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Search name, or paste multiple emails here..." 
+                    value={studentSearch} 
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    onPaste={(e) => {
+                      const pasteData = e.clipboardData.getData('text');
+                      if (pasteData.includes(',') || pasteData.includes('\n') || pasteData.includes(' ')) {
+                        e.preventDefault();
+                        handleBulkAdd(pasteData);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleBulkAdd(studentSearch);
+                      }
+                    }}
+                    style={{ flex: 1, padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#f8fafc', fontSize: '1rem', transition: 'all 0.3s ease', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                    onFocus={e => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.1)'; e.target.style.background = '#fff'; }}
+                    onBlur={e => { e.target.style.borderColor = '#cbd5e1'; e.target.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.02)'; e.target.style.background = '#f8fafc'; }}
+                  />
+                  <button 
+                    onClick={(e) => { e.preventDefault(); handleBulkAdd(studentSearch); }}
+                    style={{ padding: '0 1.5rem', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: '#fff', border: 'none', borderRadius: '12px', fontWeight: 600, cursor: 'pointer', fontSize: '1rem', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2), 0 2px 4px -1px rgba(37, 99, 235, 0.1)' }}
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Warning for not found emails */}
+                {notFoundEmails.length > 0 && (
+                  <div style={{ marginBottom: '1.5rem', padding: '1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', fontSize: '0.9rem', color: '#b91c1c' }}>
+                    <strong>Could not find the following students (check for typos):</strong>
+                    <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem', fontFamily: 'monospace' }}>
+                      {notFoundEmails.map(email => <li key={email}>{email}</li>)}
+                    </ul>
+                    <button 
+                      onClick={(e) => { e.preventDefault(); setNotFoundEmails([]); }}
+                      style={{ marginTop: '0.75rem', background: 'transparent', border: 'none', color: '#dc2626', textDecoration: 'underline', cursor: 'pointer', padding: 0, fontWeight: 500 }}
+                    >
+                      Dismiss Warning
+                    </button>
+                  </div>
+                )}
+
+                {/* Filtered Search Results */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>Available Students</span>
+                  <button 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const filtered = availableStudents.filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()) || s.email?.toLowerCase().includes(studentSearch.toLowerCase()));
+                      const newEmails = filtered.map(s => s.email);
+                      setSelectedStudentEmails(prev => Array.from(new Set([...prev, ...newEmails])));
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: '#1d72fe', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                  >
+                    Select All Listed Below
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem', paddingBottom: '1rem' }}>
+                  {availableStudents.filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()) || s.email?.toLowerCase().includes(studentSearch.toLowerCase())).map(student => {
+                    const isSelected = selectedStudentEmails.includes(student.email);
+                    return (
+                      <label key={student.email} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1rem', background: isSelected ? '#eff6ff' : '#fff', borderRadius: '10px', border: '1px solid', borderColor: isSelected ? '#bfdbfe' : '#e2e8f0', cursor: 'pointer', transition: 'all 0.2s ease', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }} onMouseOver={e => e.currentTarget.style.borderColor = isSelected ? '#93c5fd' : '#cbd5e1'} onMouseOut={e => e.currentTarget.style.borderColor = isSelected ? '#bfdbfe' : '#e2e8f0'}>
+                        <input 
+                          type="checkbox" 
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedStudentEmails(prev => [...prev, student.email]);
+                            else setSelectedStudentEmails(prev => prev.filter(email => email !== student.email));
+                          }}
+                          style={{ width: '20px', height: '20px', accentColor: '#2563eb', cursor: 'pointer' }}
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.95rem', fontWeight: 600, color: isSelected ? '#1e3a8a' : '#1e293b' }}>{student.full_name}</span>
+                          <span style={{ fontSize: '0.85rem', color: isSelected ? '#3b82f6' : '#64748b' }}>{student.email}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {availableStudents.length === 0 && (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b', fontSize: '1rem', gridColumn: '1 / -1' }}>
+                      No students loaded in the system.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Pane - Selected Emails List */}
+              <div style={{ width: '380px', background: '#f1f5f9', borderLeft: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+                <div style={{ padding: '1.75rem 1.5rem 1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ background: '#dbeafe', color: '#1d4ed8', width: '28px', height: '28px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                      {selectedStudentEmails.length}
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#0f172a', fontWeight: 700 }}>Selected</h3>
+                  </div>
+                  {selectedStudentEmails.length > 0 && (
+                    <button 
+                      onClick={(e) => { e.preventDefault(); setSelectedStudentEmails([]); }}
+                      style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', padding: '0.35rem 0.75rem', borderRadius: '6px', transition: 'background 0.2s' }}
+                      onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
+                      onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      Clear All
+                    </button>
+                  )}
+                </div>
+                
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0 1.5rem 1rem 1.5rem' }}>
+                  {selectedStudentEmails.map(email => (
+                    <div key={email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', border: '1px solid #e2e8f0', borderLeft: '4px solid #3b82f6', padding: '0.85rem 1rem', borderRadius: '8px', marginBottom: '0.65rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', transition: 'transform 0.2s ease, box-shadow 0.2s ease' }} onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)'; }} onMouseOut={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)'; }}>
+                      <span style={{ fontSize: '0.85rem', color: '#334155', wordBreak: 'break-all', fontWeight: 500 }}>{email}</span>
+                      <button 
+                        onClick={(e) => { e.preventDefault(); setSelectedStudentEmails(prev => prev.filter(e => e !== email)); }}
+                        style={{ background: '#f1f5f9', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', transition: 'all 0.2s' }}
+                        onMouseOver={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#64748b'; }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                  {selectedStudentEmails.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '4rem 1rem', background: '#fff', borderRadius: '12px', border: '2px dashed #cbd5e1' }}>
+                      <Users size={40} color="#94a3b8" style={{ margin: '0 auto 1rem' }} />
+                      <p style={{ color: '#64748b', fontSize: '0.95rem', margin: '0 0 0.5rem 0', fontWeight: 600 }}>No students selected</p>
+                      <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Use the search box to add students</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div style={{ padding: '1.25rem 1.5rem', background: '#fff', borderTop: '1px solid #e2e8f0', boxShadow: '0 -4px 10px rgba(0,0,0,0.02)' }}>
+                  <button
+                    onClick={() => setShowStudentSelectionModal(false)}
+                    style={{ width: '100%', padding: '0.9rem', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.3)', transition: 'transform 0.1s' }}
+                    onMouseOver={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                    onMouseOut={e => e.currentTarget.style.transform = 'none'}
+                  >
+                    Confirm & Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -80,7 +80,7 @@ export default function Groups({
                     />
                     <button
                       className="btn-submit"
-                      style={{ width: 'auto', padding: '0.45rem 0.75rem', fontSize: '0.75rem', background: '#10b981' }}
+                      style={{ width: 'auto', padding: '0.45rem 0.75rem', fontSize: '0.75rem', background: '#1d72fe' }}
                       onClick={() => onSaveRename(group.id)}
                     >
                       <Check size={14} /> Save

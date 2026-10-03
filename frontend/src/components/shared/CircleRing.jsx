@@ -33,7 +33,7 @@ export default function CircleRing({ percentage = 0, color = '#1d72fe', size = 6
           style={{ transition: 'stroke-dashoffset 0.8s ease' }}
         />
       </svg>
-      <div style={{ position: 'absolute', fontSize: `${size * 0.22}px`, fontWeight: 800, color: '#111827' }}>
+      <div style={{ position: 'absolute', fontSize: `${percentage === 100 ? size * 0.24 : size * 0.28}px`, fontWeight: 800, color: '#111827' }}>
         {percentage}%
       </div>
     </div>
