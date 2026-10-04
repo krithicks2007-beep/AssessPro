@@ -14,8 +14,11 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173,https://assess-pro-peach.vercel.app')
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173')
   .split(',').map(origin => origin.trim()).filter(Boolean);
+
+// Always allow Vercel prod origin
+allowedOrigins.push('https://assess-pro-peach.vercel.app');
 
 app.use(cors({
   origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
