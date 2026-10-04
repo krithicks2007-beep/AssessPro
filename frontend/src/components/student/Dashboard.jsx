@@ -141,17 +141,19 @@ export default function Dashboard({
         <div style={{
           background: '#faf5ff',
           borderRadius: '16px',
-          padding: '1.75rem 1.75rem',
+          padding: '1.5rem',
           border: '1px solid #e9d5ff',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.25rem'
+          justifyContent: 'space-between',
+          gap: '1rem'
         }}>
+          {/* Left side: Icon */}
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#8b5cf6',
             color: '#ffffff',
             display: 'flex',
@@ -159,14 +161,21 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <BarChart2 size={28} />
+            <BarChart2 size={34} />
           </div>
-          <div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
-              {displayOverallScore}%
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#6d28d9', marginTop: '0.3rem', fontWeight: 600 }}>
-              Overall Performance
+
+          {/* Right side: Dial + Text */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <CircleRing 
+              percentage={displayOverallScore} 
+              color="#8b5cf6" 
+              size={130} 
+              strokeWidth={9} 
+              fontSizeOverride={displayOverallScore === 100 ? '1.5rem' : '1.8rem'}
+              fontColorOverride="#4c1d95"
+            />
+            <div style={{ fontSize: '0.9rem', color: '#6d28d9', fontWeight: 700 }}>
+              Overall Percentage
             </div>
           </div>
         </div>
@@ -183,9 +192,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#1d72fe',
             color: '#ffffff',
             display: 'flex',
@@ -193,7 +202,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <FileText size={28} />
+            <FileText size={34} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
@@ -217,9 +226,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#f59e0b',
             color: '#ffffff',
             display: 'flex',
@@ -227,7 +236,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Hourglass size={28} />
+            <Hourglass size={34} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
@@ -251,9 +260,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#10b981',
             color: '#ffffff',
             display: 'flex',
@@ -261,7 +270,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Check size={28} strokeWidth={3} />
+            <Check size={34} strokeWidth={3} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>

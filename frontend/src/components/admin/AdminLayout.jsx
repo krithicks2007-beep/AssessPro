@@ -423,6 +423,10 @@ export default function AdminDashboard({ user, onSignOut }) {
               <StudentDirectory allUsers={usersList} />
             )}
 
+            {activeTab === 'Student Requests' && (
+              <StudentRequests />
+            )}
+
             {activeTab === 'Assessments & Results' && (
               <div className="table-card">
                 <div className="table-header-action">

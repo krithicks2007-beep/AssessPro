@@ -49,6 +49,8 @@ const fetchWithTimeout = async (url, options = {}, timeout = 8000) => {
       console.error('API returned 401 Unauthorized. Dispatching session-expired. URL:', url);
       window.dispatchEvent(new CustomEvent('session-expired'));
       throw new Error('SESSION_EXPIRED');
+    }
+    return response;
   } catch (err) {
     clearTimeout(id);
     throw new Error(err.name === 'AbortError' ? 'Request timed out' : err.message);

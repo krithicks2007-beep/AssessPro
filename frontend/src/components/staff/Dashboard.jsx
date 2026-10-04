@@ -82,58 +82,6 @@ export default function Dashboard({
 
   return (
     <div className="dashboard-content">
-      {/* Top Header / Action Bar */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'space-between',
-        marginBottom: '1.5rem',
-        flexWrap: 'wrap',
-        gap: '1rem'
-      }}>
-        <div />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button
-              onClick={onCreateTest}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                background: '#1d72fe',
-                border: 'none',
-                color: '#ffffff',
-                padding: '0.65rem 1.25rem',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 2px 6px rgba(29, 114, 254, 0.2)'
-              }}
-            >
-              <Plus size={16} />
-              <span>Create New Test</span>
-            </button>
-            <button
-              onClick={onManageGroups}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                background: '#ffffff',
-                border: '1px solid #cbd5e1',
-                color: '#475569',
-                padding: '0.65rem 1.25rem',
-                borderRadius: '8px',
-                fontSize: '0.85rem',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              <SettingsIcon size={16} />
-              <span>Manage Groups</span>
-            </button>
-        </div>
-      </div>
 
       {/* Row 1: Top 4 KPI Metrics Cards (Matching Student Screenshot) */}
       <div style={{
@@ -146,17 +94,19 @@ export default function Dashboard({
         <div style={{
           background: '#faf5ff',
           borderRadius: '16px',
-          padding: '1.75rem 1.75rem',
+          padding: '1.5rem',
           border: '1px solid #e9d5ff',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.25rem'
+          justifyContent: 'space-between',
+          gap: '1rem'
         }}>
+          {/* Left side: Icon */}
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#8b5cf6',
             color: '#ffffff',
             display: 'flex',
@@ -164,14 +114,21 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <BarChart2 size={28} />
+            <BarChart2 size={34} />
           </div>
-          <div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#4c1d95', lineHeight: 1.1 }}>
-              {overallAverageScore}%
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#6d28d9', marginTop: '0.3rem', fontWeight: 600 }}>
-              Average Score
+
+          {/* Right side: Dial + Text */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+            <CircleRing 
+              percentage={overallAverageScore} 
+              color="#8b5cf6" 
+              size={130} 
+              strokeWidth={9} 
+              fontSizeOverride={overallAverageScore === 100 ? '1.5rem' : '1.8rem'}
+              fontColorOverride="#4c1d95"
+            />
+            <div style={{ fontSize: '0.9rem', color: '#6d28d9', fontWeight: 700 }}>
+              Overall Percentage
             </div>
           </div>
         </div>
@@ -188,9 +145,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#1d72fe',
             color: '#ffffff',
             display: 'flex',
@@ -198,7 +155,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <FileText size={28} />
+            <FileText size={34} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
@@ -222,9 +179,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#f59e0b',
             color: '#ffffff',
             display: 'flex',
@@ -232,7 +189,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Hourglass size={28} />
+            <Hourglass size={34} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
@@ -256,9 +213,9 @@ export default function Dashboard({
           gap: '1.25rem'
         }}>
           <div style={{
-            width: '54px',
-            height: '54px',
-            borderRadius: '14px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
             background: '#10b981',
             color: '#ffffff',
             display: 'flex',
@@ -266,7 +223,7 @@ export default function Dashboard({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Users size={28} />
+            <Users size={34} />
           </div>
           <div>
             <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>

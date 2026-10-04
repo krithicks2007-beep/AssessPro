@@ -12,7 +12,8 @@ import {
   Bell,
   ChevronDown,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Plus
 } from 'lucide-react';
 import api from '../../api';
 import ViewSubmissionsModal from './ViewSubmissionsModal';
@@ -379,6 +380,26 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             </div>
 
             <div className="header-right">
+              <button
+                onClick={handleCreateDraft}
+                title="Create New Test"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: '#1d72fe',
+                  border: 'none',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(29,114,254,0.35)',
+                  flexShrink: 0
+                }}
+              >
+                <Plus size={18} />
+              </button>
               <div className="notification-btn" title={draftCount > 0 ? `${draftCount} Draft Assessment${draftCount > 1 ? 's' : ''}` : 'No Notifications'}>
                 <Bell size={17} />
                 {draftCount > 0 && <span className="notification-badge">{draftCount}</span>}

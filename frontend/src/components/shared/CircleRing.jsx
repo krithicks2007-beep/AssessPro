@@ -4,7 +4,7 @@ import React from 'react';
  * Reusable SVG Circular Progress Ring
  * Used across Student and Staff dashboards for performance visualization
  */
-export default function CircleRing({ percentage = 0, color = '#1d72fe', size = 68, strokeWidth = 6 }) {
+export default function CircleRing({ percentage = 0, color = '#1d72fe', size = 68, strokeWidth = 6, fontSizeOverride, fontColorOverride }) {
   const radius = (size - strokeWidth * 2) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (percentage / 100) * circumference;
@@ -33,7 +33,20 @@ export default function CircleRing({ percentage = 0, color = '#1d72fe', size = 6
           style={{ transition: 'stroke-dashoffset 0.8s ease' }}
         />
       </svg>
-      <div style={{ position: 'absolute', fontSize: `${percentage === 100 ? size * 0.24 : size * 0.28}px`, fontWeight: 800, color: '#111827' }}>
+      <div style={{ 
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: fontSizeOverride ? fontSizeOverride : `${percentage === 100 ? size * 0.24 : size * 0.28}px`, 
+        fontWeight: 800, 
+        color: fontColorOverride || '#111827',
+        lineHeight: 1
+      }}>
         {percentage}%
       </div>
     </div>
