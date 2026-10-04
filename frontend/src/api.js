@@ -213,31 +213,16 @@ export const api = {
   },
 
   async createGroup(groupData) {
-    let created = null;
-    try {
-      const res = await fetchWithTimeout(`${API_BASE}/groups`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(groupData)
-      });
-      if (res.ok) {
-        created = await safeJson(res);
-      } else {
-        const data = await safeJson(res);
-        throw new Error(data.error || 'Failed to create group');
-      }
-    } catch (err) {
-      console.warn('Backend createGroup failed, trying fallback:', err.message);
+    const res = await fetchWithTimeout(`${API_BASE}/groups`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(groupData)
+    });
+    const data = await safeJson(res);
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to create group');
     }
-    
-    if (!created) {
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error('Failed to create group: Backend unreachable');
-      const { data, error } = await supabase.from('groups').insert([{ ...groupData }]).select().maybeSingle();
-      if (error) throw new Error(error.message);
-      created = data;
-    }
-    return created;
+    return data;
   },
 
   async updateGroupName(id, name) {
