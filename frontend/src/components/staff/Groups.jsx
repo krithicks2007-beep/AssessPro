@@ -19,6 +19,8 @@ export default function Groups({
   setNewGroupName,
   newGroupCategory,
   setNewGroupCategory,
+  newGroupType,
+  setNewGroupType,
   facultyDept,
   onAddNewGroup
 }) {
@@ -159,6 +161,18 @@ export default function Groups({
               <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block', marginTop: '0.4rem' }}>
                 Constraint: Min 3 chars, max 50 chars.
               </span>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Group Type (Tests or Tasks)</label>
+              <select
+                className="form-input"
+                value={newGroupType}
+                onChange={(e) => setNewGroupType(e.target.value)}
+              >
+                <option value="test">Group for MCQ Tests</option>
+                <option value="task">Group for Practical Tasks</option>
+              </select>
             </div>
 
             <div className="form-group">

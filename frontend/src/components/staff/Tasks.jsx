@@ -1,3 +1,4 @@
+import { getSupabaseClient } from '../../supabaseClient';
 import React, { useState, useEffect } from 'react';
 import {
   Clock,
@@ -14,21 +15,21 @@ import {
   Trash2
 } from 'lucide-react';
 
-function AutoLaunchTimer({ test, onTriggerLaunch }) {
+function AutoLaunchTimer({ Task, onTriggerLaunch }) {
   const [timeLeft, setTimeLeft] = useState('');
 
   useEffect(() => {
-    if (!test.auto_launch || !test.start_time || test.status !== 'draft') return;
+    if (!Task.auto_launch || !Task.start_time || Task.status !== 'draft') return;
 
     const interval = setInterval(() => {
       const now = new Date().getTime();
-      const target = new Date(test.start_time).getTime();
+      const target = new Date(Task.start_time).getTime();
       const diff = target - now;
 
       if (diff <= 0) {
         clearInterval(interval);
         setTimeLeft('Launching...');
-        onTriggerLaunch(test);
+        onTriggerLaunch(Task);
       } else {
         const d = Math.floor(diff / (1000 * 60 * 60 * 24));
         const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -50,9 +51,9 @@ function AutoLaunchTimer({ test, onTriggerLaunch }) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [test, onTriggerLaunch]);
+  }, [Task, onTriggerLaunch]);
 
-  if (!test.auto_launch || !test.start_time || test.status !== 'draft') return null;
+  if (!Task.auto_launch || !Task.start_time || Task.status !== 'draft') return null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', padding: '0.75rem 0.5rem', background: '#dbeafe', border: '1px solid #93c5fd', borderRadius: '12px', color: '#1e3a8a', fontSize: '0.75rem', fontWeight: 800, minWidth: '105px', textAlign: 'center', alignSelf: 'center', flexShrink: 0 }}>
@@ -71,11 +72,11 @@ function AutoLaunchTimer({ test, onTriggerLaunch }) {
 
 
 /**
- * Staff Tests Tab
- * Shows all tests with group badge, status, delete X button, and view submissions button.
+ * Staff Tasks Tab
+ * Shows all Tasks with group badge, status, delete X button, and view submissions button.
  */
-export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfigureTest, onQuickLaunch, onDeleteTest, onCopyTest }) {
-  const [testToDelete, setTestToDelete] = useState(null);
+export default function Tasks({ tasks, onCreateTask, onViewSubmissions, onConfigureTask, onQuickLaunch, onDeleteTask, onCopyTask }) {
+  const [TaskToDelete, setTaskToDelete] = useState(null);
   const [activeMenuId, setActiveMenuId] = useState(null);
 
   useEffect(() => {
@@ -85,11 +86,11 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
   }, []);
 
   const handleExecuteDelete = async (keepData) => {
-    if (!testToDelete) return;
-    const targetId = testToDelete.id;
-    setTestToDelete(null);
-    if (onDeleteTest) {
-      await onDeleteTest(targetId, keepData);
+    if (!TaskToDelete) return;
+    const targetId = TaskToDelete.id;
+    setTaskToDelete(null);
+    if (onDeleteTask) {
+      await onDeleteTask(targetId, keepData);
     }
   };
 
@@ -108,7 +109,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
       }}>
         <div>
           <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#111827', margin: 0 }}>
-            Assessment & Test Management
+            Assessment & Task Management
           </h2>
           <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0.25rem 0 0' }}>
             Manage scheduled MCQs, time slots, and view student marks with tab-switch anti-cheating tracking.
@@ -117,16 +118,16 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
 
         <button
           className="btn-create-test"
-          onClick={onCreateTest}
+          onClick={onCreateTask}
           style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
         >
           <Plus size={16} />
-          <span>New Test</span>
+          <span>New Task</span>
         </button>
       </div>
 
-      {/* Test Cards Grid */}
-      {tests.length === 0 ? (
+      {/* Task Cards Grid */}
+      {tasks.length === 0 ? (
         <div style={{
           textAlign: 'center',
           padding: '3.5rem 1.5rem',
@@ -152,20 +153,20 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
             No Assessments Created Yet
           </h3>
           <p style={{ color: '#64748b', fontSize: '0.85rem', maxWidth: '420px', margin: '0 auto 1.5rem' }}>
-            Click &quot;New Test&quot; above to create a custom assessment with MCQs and assign it to student groups.
+            Click &quot;New Task&quot; above to create a custom assessment with MCQs and assign it to student groups.
           </p>
           <button
             className="btn-create-test"
-            onClick={onCreateTest}
+            onClick={onCreateTask}
             style={{ margin: '0 auto', display: 'inline-flex', padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
           >
             <Plus size={16} />
-            <span>Create First Test</span>
+            <span>Create First Task</span>
           </button>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.25rem' }}>
-          {tests.map((t, idx) => (
+          {tasks.map((t, idx) => (
             <div key={t.id || idx} style={{
               background: '#ffffff',
               borderRadius: '14px',
@@ -180,7 +181,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
               {/* Options Menu Button (3 Dots) */}
               <div style={{ position: 'absolute', top: '-10px', right: '-10px', zIndex: 10 }}>
                 <button
-                  title="Test Options"
+                  title="Task Options"
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveMenuId(activeMenuId === t.id ? null : t.id);
@@ -219,13 +220,19 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                     overflow: 'hidden',
                     zIndex: 20
                   }}>
-                    <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); if (onCopyTest) onCopyTest(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#eff6ff', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#1d4ed8', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e0e7ff' }} onMouseEnter={(e) => e.currentTarget.style.background = '#dbeafe'} onMouseLeave={(e) => e.currentTarget.style.background = '#eff6ff'}>
+                    <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); if (onCopyTask) onCopyTask(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#eff6ff', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#1d4ed8', fontSize: '0.85rem', fontWeight: 600, borderBottom: '1px solid #e0e7ff' }} onMouseEnter={(e) => e.currentTarget.style.background = '#dbeafe'} onMouseLeave={(e) => e.currentTarget.style.background = '#eff6ff'}>
                       <Copy size={15} /> Copy
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); if (onConfigureTest) onConfigureTest(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#f0fdf4', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#15803d', fontSize: '0.85rem', fontWeight: 600 }} onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'} onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}>
-                      <Edit size={15} /> Review
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); setTestToDelete(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#fef2f2', border: 'none', borderTop: '1px solid #fee2e2', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#b91c1c', fontSize: '0.85rem', fontWeight: 600 }} onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'} onMouseLeave={(e) => e.currentTarget.style.background = '#fef2f2'}>
+                    {t.status === 'published' ? (
+                      <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); if (onViewSubmissions) onViewSubmissions(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#f0fdf4', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#15803d', fontSize: '0.85rem', fontWeight: 600 }} onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'} onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}>
+                        <Users size={15} /> Review
+                      </button>
+                    ) : (
+                      <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); if (onConfigureTask) onConfigureTask(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#f0fdf4', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#15803d', fontSize: '0.85rem', fontWeight: 600 }} onMouseEnter={(e) => e.currentTarget.style.background = '#dcfce7'} onMouseLeave={(e) => e.currentTarget.style.background = '#f0fdf4'}>
+                        <Edit size={15} /> Edit
+                      </button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); setActiveMenuId(null); setTaskToDelete(t); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 0.85rem', background: '#fef2f2', border: 'none', borderTop: '1px solid #fee2e2', width: '100%', textAlign: 'left', cursor: 'pointer', color: '#b91c1c', fontSize: '0.85rem', fontWeight: 600 }} onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'} onMouseLeave={(e) => e.currentTarget.style.background = '#fef2f2'}>
                       <Trash2 size={15} /> Delete
                     </button>
                   </div>
@@ -256,16 +263,12 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
                   <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                      <Clock size={15} color="#1d72fe" />
-                      <span>Duration: <strong>{t.duration_minutes || 30} Minutes</strong></span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                       <HelpCircle size={15} color="#10b981" />
-                      <span>Questions: <strong>{t.total_questions || t.questions?.length || 10} MCQs ({t.max_score || 100} Marks)</strong></span>
+                      <span>Max Score: <strong>{t.max_score || 100} Marks</strong></span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                       <Calendar size={15} color="#f59e0b" />
-                      <span>Starts: <strong>{t.start_time ? new Date(t.start_time).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : 'Available Immediately'}</strong></span>
+                      <span>Due: <strong>{t.due_date ? new Date(t.due_date).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : 'No Due Date'}</strong></span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                       <Users size={15} color="#8b5cf6" />
@@ -274,7 +277,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                   </div>
 
                   {t.status === 'draft' && t.auto_launch && (
-                    <AutoLaunchTimer test={t} onTriggerLaunch={onQuickLaunch} />
+                    <AutoLaunchTimer Task={t} onTriggerLaunch={onQuickLaunch} />
                   )}
                 </div>
               </div>
@@ -282,7 +285,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
               {t.status === 'draft' ? (
                 <div style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
                   <button
-                    onClick={() => onConfigureTest(t)}
+                    onClick={() => onConfigureTask(t)}
                     style={{
                       flex: 1,
                       padding: '0.65rem',
@@ -298,7 +301,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                       justifyContent: 'center'
                     }}
                   >
-                    Configure Test
+                    Configure Task
                   </button>
                   <button
                     onClick={() => onQuickLaunch(t)}
@@ -348,8 +351,8 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
         </div>
       )}
 
-      {/* Confirmation Modal for Test Deletion */}
-      {testToDelete && (
+      {/* Confirmation Modal for Task Deletion */}
+      {TaskToDelete && (
         <div style={{
           position: 'fixed',
           top: 0,
@@ -392,13 +395,13 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                   Confirm Assessment Deletion
                 </h3>
                 <p style={{ margin: '0.1rem 0 0', fontSize: '0.82rem', color: '#64748b' }}>
-                  {testToDelete.title}
+                  {TaskToDelete.title}
                 </p>
               </div>
             </div>
 
             <p style={{ fontSize: '0.86rem', color: '#334155', lineHeight: 1.5, marginBottom: '1.25rem' }}>
-              Are you sure you want to delete <strong>&quot;{testToDelete.title}&quot;</strong>? Select how you would like to handle student performance data:
+              Are you sure you want to delete <strong>&quot;{TaskToDelete.title}&quot;</strong>? Select how you would like to handle student performance data:
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginBottom: '1.5rem' }}>
@@ -425,7 +428,7 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                   <span>📦 Keep Data (Delete Card Only)</span>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.4 }}>
-                  Removes the test card from staff & student views, but retains all student marks and batch calculations as-is.
+                  Removes the Task card from staff & student views, but retains all student marks and batch calculations as-is.
                 </div>
               </button>
 
@@ -449,17 +452,17 @@ export default function Tests({ tests, onCreateTest, onViewSubmissions, onConfig
                 onMouseLeave={(e) => e.currentTarget.style.borderColor = '#fecaca'}
               >
                 <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <span>🗑️ Delete Test & All Associated Data</span>
+                  <span>🗑️ Delete Task & All Associated Data</span>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#991b1b', lineHeight: 1.4 }}>
-                  Deletes the test AND purges all student submissions. Batch averages and student performance stats will be recalculated with remaining tests.
+                  Deletes the Task AND purges all student submissions. Batch averages and student performance stats will be recalculated with remaining Tasks.
                 </div>
               </button>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
-                onClick={() => setTestToDelete(null)}
+                onClick={() => setTaskToDelete(null)}
                 style={{
                   padding: '0.55rem 1.35rem',
                   borderRadius: '8px',

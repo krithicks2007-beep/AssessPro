@@ -8,9 +8,11 @@ import {
   LogOut,
   Bell,
   Building2,
-  Clock
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 import api from '../../api';
+import { getSupabaseClient } from '../../supabaseClient';
 import { parseBitEmail, isMasterAccount } from '../../utils/studentParser';
 import TestTakingModal from './TestTakingModal';
 
@@ -31,10 +33,26 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const [groups, setGroups] = useState([]);
   const [tests, setTests] = useState([]);
   const [studentSubmissions, setStudentSubmissions] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [studentTaskSubmissions, setStudentTaskSubmissions] = useState([]);
   const [assignedStaff, setAssignedStaff] = useState(null);
   const [activeTestTaking, setActiveTestTaking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const [actionSuccess, setActionSuccess] = useState('');
+  const [actionError, setActionError] = useState('');
+
+  const notifySuccess = useCallback((msg) => {
+    setActionSuccess(msg);
+    setActionError('');
+    setTimeout(() => setActionSuccess(''), 3000);
+  }, []);
+
+  const notifyError = useCallback((msg) => {
+    setActionError(msg);
+    setActionSuccess('');
+    setTimeout(() => setActionError(''), 4000);
+  }, []);
 
   const email = user?.email || '';
   const parsed = parseBitEmail(email);
@@ -88,19 +106,39 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         return true;
       });
 
-      // Find all group IDs that are associated with the effective tests
-      const testGroupIds = new Set(effectiveTestsFiltered.map(t => t.group_id).filter(Boolean));
+      // Fetch tasks and task submissions
+      const supabase = getSupabaseClient();
+      let tData = [];
+      let subData = [];
+      if (supabase) {
+        const [taskRes, subRes] = await Promise.all([
+          supabase.from('tasks').select('*, groups(*)').eq('status', 'published').order('created_at', { ascending: false }),
+          supabase.from('task_submissions').select('*').eq('student_id', user?.id)
+        ]);
+        tData = taskRes.data || [];
+        subData = subRes.data || [];
+      }
 
-      // Filter groups: keep if they belong to the student's assigned staff OR if the student has a test in them
+      // Find all group IDs that are associated with the effective tests or tasks
+      const testGroupIds = new Set(effectiveTestsFiltered.map(t => t.group_id).filter(Boolean));
+      const taskGroupIds = new Set(tData.map(t => t.group_id).filter(Boolean));
+
+      // Filter groups: keep if they belong to the student's assigned staff OR if the student has a test/task in them
       const safeGroups = Array.isArray(allGroups) ? allGroups : [];
       const visibleGroups = safeGroups.filter(g => 
         (assignedStaffId && String(g.staff_id) === String(assignedStaffId)) || 
-        testGroupIds.has(g.id)
+        testGroupIds.has(g.id) ||
+        taskGroupIds.has(g.id)
       );
 
       setGroups(visibleGroups);
       setTests(allTestsData || []);
       setStudentSubmissions(Array.isArray(sData) ? sData : []);
+      
+      setTasks(tData);
+      setStudentTaskSubmissions(subData);
+      
+
     } catch (err) {
       console.error('Error fetching student dashboard data:', err);
     } finally {
@@ -146,19 +184,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
 
   const isDemoMaster = isMasterAccount(email);
 
-  // Dynamic real score calculations for individual students
-  const completedSubs = safeStudentSubmissions.filter(s => s.status === 'completed');
-  const realTestsCompletedCount = completedSubs.length;
-  const realOverallScore = realTestsCompletedCount > 0
-    ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0) / realTestsCompletedCount)
-    : 0;
-
   // Filter tests (same logic as inside loadData, kept here for dynamic render consistency)
   const effectiveTests = safeTests.filter(t => {
-    if (t.status === 'draft') {
-      return false;
-    }
-
+    if (t.status === 'draft') return false;
     if (Array.isArray(t.assigned_students) && t.assigned_students.length > 0) {
       const cleanEmail = (email || '').toLowerCase().trim();
       return t.assigned_students.some(e => {
@@ -166,12 +194,57 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         return val.toLowerCase().trim() === cleanEmail;
       });
     }
-
     return true;
   });
 
+  const effectiveTasks = (tasks || []).filter(t => {
+    if (t.status === 'draft') return false;
+    if (Array.isArray(t.assigned_students) && t.assigned_students.length > 0) {
+      const cleanEmail = (email || '').toLowerCase().trim();
+      return t.assigned_students.some(e => {
+        const val = typeof e === 'string' ? e : e?.email || '';
+        return val.toLowerCase().trim() === cleanEmail;
+      });
+    }
+    return true;
+  });
+
+  // Strict Rule calculations for individual students (penalizes missed deadlines with 0%)
+  const completedTestSubs = safeStudentSubmissions.filter(s => s.status === 'completed');
+  
+  // Tests passed deadline without submission
+  const pastTests = effectiveTests.filter(t => t.end_time && new Date(t.end_time).getTime() < Date.now());
+  const missedTestsCount = pastTests.filter(t => !completedTestSubs.some(s => String(s.test_id) === String(t.id))).length;
+  const gradedTestsCount = completedTestSubs.length + missedTestsCount;
+  
+  const totalTestScore = completedTestSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0);
+  const strictTestAverage = gradedTestsCount > 0 ? Math.round(totalTestScore / gradedTestsCount) : 0;
+
+  // Tasks passed deadline without submission
+  const pastTasks = effectiveTasks.filter(t => t.due_date && new Date(t.due_date).getTime() < Date.now());
+  const completedTaskSubs = (studentTaskSubmissions || []).filter(s => s.status === 'reviewed');
+  const missedTasksCount = pastTasks.filter(t => !completedTaskSubs.some(s => String(s.task_id) === String(t.id))).length;
+  
+  const gradedTasksCount = completedTaskSubs.length + missedTasksCount;
+  const totalTaskScore = completedTaskSubs.reduce((acc, s) => {
+    const max = effectiveTasks.find(t => t.id === s.task_id)?.max_score || 100;
+    return acc + ((s.score / max) * 100);
+  }, 0);
+  
+  const strictTaskAverage = gradedTasksCount > 0 ? Math.round(totalTaskScore / gradedTasksCount) : 0;
+
+  // Overall Strict Score (50/50 split)
+  let realOverallScore = 0;
+  if (gradedTestsCount > 0 && gradedTasksCount > 0) {
+    realOverallScore = Math.round((strictTestAverage + strictTaskAverage) / 2);
+  } else if (gradedTestsCount > 0) {
+    realOverallScore = strictTestAverage;
+  } else if (gradedTasksCount > 0) {
+    realOverallScore = strictTaskAverage;
+  }
+
   const overallScore = realOverallScore;
-  const testsCompletedCount = realTestsCompletedCount;
+  const testsCompletedCount = completedTestSubs.length;
 
   // Notification bell: only count tests that the student has NOT attended yet
   const pendingTests = effectiveTests.filter(t => 
@@ -187,6 +260,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
     { label: 'Dashboard', icon: Home },
     { label: 'My Tests', icon: FileText },
     { label: 'Test History', icon: Clock },
+    { label: 'Tasks', icon: CheckSquare },
     { label: 'My Performance', icon: BarChart2 },
     { label: 'Profile', icon: User },
   ];
@@ -221,9 +295,14 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         return (
           <Tasks 
             studentDept={studentDept} 
-            tasks={effectiveTests.filter(t => t.test_type === 'task')}
-            studentSubmissions={safeStudentSubmissions}
+            tasks={effectiveTasks}
+            studentSubmissions={studentTaskSubmissions}
+            studentEmail={email}
+            studentId={user?.id}
+            onSubmissionSuccess={() => loadData()}
             onStartTask={(task) => setActiveTestTaking(task)}
+            notifySuccess={notifySuccess}
+            notifyError={notifyError}
           />
         );
       case 'Profile':
@@ -251,7 +330,9 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
           <Dashboard
             groups={safeGroups}
             tests={effectiveTests}
+            tasks={effectiveTasks}
             studentSubmissions={safeStudentSubmissions}
+            studentTaskSubmissions={studentTaskSubmissions}
             studentName={studentName}
             studentDept={studentDept}
             studentYear={studentYear}
@@ -390,6 +471,21 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             </div>
           ) : renderActiveTab()}
         </div>
+        
+        {/* Global Notifications */}
+        {actionSuccess && (
+          <div style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999, background: '#10b981', color: '#fff', padding: '1rem 1.5rem', borderRadius: '12px', boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 600 }}>
+            <CheckSquare size={20} />
+            <span>{actionSuccess}</span>
+          </div>
+        )}
+
+        {actionError && (
+          <div style={{ position: 'fixed', bottom: '2rem', right: '2rem', zIndex: 9999, background: '#ef4444', color: '#fff', padding: '1rem 1.5rem', borderRadius: '12px', boxShadow: '0 10px 25px rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 600 }}>
+            <AlertCircle size={20} />
+            <span>{actionError}</span>
+          </div>
+        )}
       </main>
 
       {/* Test Taking Environment Modal */}

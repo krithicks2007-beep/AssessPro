@@ -11,7 +11,7 @@ const YEAR_OPTIONS = [
   { label: "4th Year", value: "IV Year" },
 ];
 
-export default function StudentDirectory({ allUsers }) {
+export default function StudentDirectory({ allUsers, onImpersonate }) {
   const [studentsList, setStudentsList] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -243,6 +243,7 @@ export default function StudentDirectory({ allUsers }) {
                 <Trash2 size={16} /> Delete User
               </button>
               <div style={{ display: "flex", gap: "1rem" }}>
+                <button onClick={() => { if(onImpersonate) onImpersonate(viewingStudent, 'student'); }} style={{ background: "#f59e0b", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>View As</button>
                 <button onClick={() => setShowDashboard(true)} style={{ background: "transparent", color: "#1d72fe", border: "1px solid #1d72fe", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>Dashboard</button>
                 <button onClick={handleSaveStudent} disabled={isSaving} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#1d72fe", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer", opacity: isSaving ? 0.7 : 1 }}>
                   <Save size={16} />{isSaving ? "Saving..." : "Save Changes"}

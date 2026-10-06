@@ -61,6 +61,7 @@ const getScoreColor = (pct) => {
 export default function Dashboard({
   groups = [],
   tests = [],
+  tasks = [],
   totalTestsCount = 0,
   publishedCount = 0,
   draftCount = 0,
@@ -72,10 +73,27 @@ export default function Dashboard({
 }) {
   const displayGroups = Array.isArray(groups) ? groups : [];
   
-  // Calculate a mock or derived average score for the dashboard KPI
-  const overallAverageScore = tests.length > 0 
-    ? Math.round(tests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / tests.length)
+  // Calculate test average — only count published tests that have at least one graded submission
+  const gradedTests = tests.filter(t => t.status !== 'draft' && Number(t.avg) > 0);
+  const testAverage = gradedTests.length > 0 
+    ? Math.round(gradedTests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / gradedTests.length)
     : 0;
+
+  // Calculate task average — only count tasks that have at least one reviewed submission
+  const gradedTasks = tasks.filter(t => Number(t.avg) > 0);
+  const taskAverage = gradedTasks.length > 0 
+    ? Math.round(gradedTasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / gradedTasks.length)
+    : 0;
+
+  // Overall percentage
+  let overallPercentage = 0;
+  if (gradedTests.length > 0 && gradedTasks.length > 0) {
+    overallPercentage = Math.round((testAverage + taskAverage) / 2);
+  } else if (gradedTests.length > 0) {
+    overallPercentage = testAverage;
+  } else if (gradedTasks.length > 0) {
+    overallPercentage = taskAverage;
+  }
 
   // Total students from props
   const totalStudents = totalStudentsCount;
@@ -83,16 +101,16 @@ export default function Dashboard({
   return (
     <div className="dashboard-content">
 
-      {/* Row 1: Top 4 KPI Metrics Cards (Matching Student Screenshot) */}
+      {/* Row 1: KPI Progress Rings (Overall, Tests, Tasks) */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
         gap: '1.25rem',
         marginBottom: '1.75rem'
       }}>
-        {/* Metric 1: Average Score (Purple Theme) */}
+        {/* Metric 1: Overall Percentage (Purple Theme) */}
         <div style={{
-          background: '#faf5ff',
+          background: '#f3e8ff',
           borderRadius: '16px',
           padding: '1.5rem',
           border: '1px solid #e9d5ff',
@@ -102,7 +120,6 @@ export default function Dashboard({
           justifyContent: 'space-between',
           gap: '1rem'
         }}>
-          {/* Left side: Icon */}
           <div style={{
             width: '64px',
             height: '64px',
@@ -116,15 +133,13 @@ export default function Dashboard({
           }}>
             <BarChart2 size={34} />
           </div>
-
-          {/* Right side: Dial + Text */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
             <CircleRing 
-              percentage={overallAverageScore} 
+              percentage={overallPercentage} 
               color="#8b5cf6" 
               size={130} 
               strokeWidth={9} 
-              fontSizeOverride={overallAverageScore === 100 ? '1.5rem' : '1.8rem'}
+              fontSizeOverride={overallPercentage === 100 ? '1.5rem' : '1.8rem'}
               fontColorOverride="#4c1d95"
             />
             <div style={{ fontSize: '0.9rem', color: '#6d28d9', fontWeight: 700 }}>
@@ -133,22 +148,23 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Metric 2: Total Tests (Blue Theme) */}
+        {/* Metric 2: Test Average (Blue Theme) */}
         <div style={{
-          background: '#eff6ff',
+          background: '#dbeafe',
           borderRadius: '16px',
-          padding: '1.75rem 1.75rem',
+          padding: '1.5rem',
           border: '1px solid #bfdbfe',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.25rem'
+          justifyContent: 'space-between',
+          gap: '1rem'
         }}>
           <div style={{
             width: '64px',
             height: '64px',
             borderRadius: '16px',
-            background: '#1d72fe',
+            background: '#3b82f6',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
@@ -157,81 +173,120 @@ export default function Dashboard({
           }}>
             <FileText size={34} />
           </div>
-          <div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>
-              {totalTestsCount}
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#1d4ed8', marginTop: '0.3rem', fontWeight: 600 }}>
-              Total Tests
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+            <CircleRing 
+              percentage={testAverage} 
+              color="#3b82f6" 
+              size={130} 
+              strokeWidth={9} 
+              fontSizeOverride={testAverage === 100 ? '1.5rem' : '1.8rem'}
+              fontColorOverride="#1e3a8a"
+            />
+            <div style={{ fontSize: '0.9rem', color: '#1e3a8a', fontWeight: 700 }}>
+              Test Average
             </div>
           </div>
         </div>
 
-        {/* Metric 3: Active Tests (Orange Theme) */}
+        {/* Metric 3: Task Average (Green/Teal Theme) */}
         <div style={{
-          background: '#fff7ed',
+          background: '#ccfbf1',
           borderRadius: '16px',
-          padding: '1.75rem 1.75rem',
-          border: '1px solid #fed7aa',
+          padding: '1.5rem',
+          border: '1px solid #99f6e4',
           boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
           display: 'flex',
           alignItems: 'center',
-          gap: '1.25rem'
+          justifyContent: 'space-between',
+          gap: '1rem'
         }}>
           <div style={{
             width: '64px',
             height: '64px',
             borderRadius: '16px',
-            background: '#f59e0b',
+            background: '#14b8a6',
             color: '#ffffff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <Hourglass size={34} />
+            <BookOpen size={34} />
           </div>
-          <div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>
-              {activeTestsCount}
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#b45309', marginTop: '0.3rem', fontWeight: 600 }}>
-              Active Tests
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+            <CircleRing 
+              percentage={taskAverage} 
+              color="#14b8a6" 
+              size={130} 
+              strokeWidth={9} 
+              fontSizeOverride={taskAverage === 100 ? '1.5rem' : '1.8rem'}
+              fontColorOverride="#115e59"
+            />
+            <div style={{ fontSize: '0.9rem', color: '#134e4a', fontWeight: 700 }}>
+              Task Average
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Metric 4: Published Tests (Green Theme) */}
+      {/* Row 2: Stats Cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+        gap: '1.25rem',
+        marginBottom: '1.75rem'
+      }}>
         <div style={{
-          background: '#f0fdf4',
+          background: '#dbeafe',
           borderRadius: '16px',
-          padding: '1.75rem 1.75rem',
-          border: '1px solid #bbf7d0',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          padding: '1.5rem',
+          border: '1px solid #93c5fd',
           display: 'flex',
           alignItems: 'center',
           gap: '1.25rem'
         }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
-            background: '#10b981',
-            color: '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0
-          }}>
-            <Users size={34} />
+          <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: '#1d72fe', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <FileText size={28} />
           </div>
           <div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>
-              {totalStudents}
-            </div>
-            <div style={{ fontSize: '0.9rem', color: '#047857', marginTop: '0.3rem', fontWeight: 600 }}>
-              Total Students
-            </div>
+            <div style={{ fontSize: '2.4rem', fontWeight: 800, color: '#1e3a8a', lineHeight: 1.1 }}>{totalTestsCount}</div>
+            <div style={{ fontSize: '0.85rem', color: '#1d4ed8', marginTop: '0.2rem', fontWeight: 600 }}>Total Tests</div>
+          </div>
+        </div>
+        
+        <div style={{
+          background: '#ffedd5',
+          borderRadius: '16px',
+          padding: '1.5rem',
+          border: '1px solid #fdba74',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.25rem'
+        }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: '#f59e0b', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Hourglass size={28} />
+          </div>
+          <div>
+            <div style={{ fontSize: '2.4rem', fontWeight: 800, color: '#78350f', lineHeight: 1.1 }}>{activeTestsCount}</div>
+            <div style={{ fontSize: '0.85rem', color: '#b45309', marginTop: '0.2rem', fontWeight: 600 }}>Active Tests</div>
+          </div>
+        </div>
+        
+        <div style={{
+          background: '#dcfce3',
+          borderRadius: '16px',
+          padding: '1.5rem',
+          border: '1px solid #86efac',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '1.25rem'
+        }}>
+          <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Users size={28} />
+          </div>
+          <div>
+            <div style={{ fontSize: '2.4rem', fontWeight: 800, color: '#064e3b', lineHeight: 1.1 }}>{totalStudents}</div>
+            <div style={{ fontSize: '0.85rem', color: '#047857', marginTop: '0.2rem', fontWeight: 600 }}>Total Students</div>
           </div>
         </div>
       </div>
@@ -278,24 +333,28 @@ export default function Dashboard({
           const groupBg = groupThemeColor + '10'; // 10% opacity tint
           const groupBorder = groupThemeColor + '30'; // 30% opacity tint
 
-          // Find tests belonging to this group
+          // Find tests and tasks belonging to this group
           const groupTests = tests.filter(t => t.group_id === group.id);
+          const groupTasks = tasks.filter(t => t.group_id === group.id);
           
           // Calculate dynamic group average
           let groupPct = 0;
-          if (groupTests.length > 0) {
-            groupPct = Math.round(groupTests.reduce((a, t) => a + (Number(t.avg) || 0), 0) / groupTests.length);
+          const totalItemsCount = groupTests.length + groupTasks.length;
+          if (totalItemsCount > 0) {
+            const testTotal = groupTests.reduce((a, t) => a + (Number(t.avg) || 0), 0);
+            const taskTotal = groupTasks.reduce((a, t) => a + (Number(t.avg) || 0), 0);
+            groupPct = Math.round((testTotal + taskTotal) / totalItemsCount);
           }
 
           // Build test list for the group
-          const testItems = groupTests.map(gt => {
-            return {
-              id: gt.id,
-              title: gt.title,
-              score: Number(gt.avg) || 0,
-              testData: gt
-            };
-          });
+          const testItems = [
+            ...groupTests.map(gt => ({
+              id: gt.id, title: gt.title, score: Number(gt.avg) || 0, type: 'test'
+            })),
+            ...groupTasks.map(gt => ({
+              id: gt.id, title: gt.title, score: Number(gt.avg) || 0, type: 'task'
+            }))
+          ];
 
           return (
             <div
@@ -378,10 +437,10 @@ export default function Dashboard({
                       color: '#64748b'
                     }}>
                       <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>
-                        No Active Tests
+                        No Assignments
                       </div>
                       <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-                        Create a test to see it here
+                        Assign a test or task to see it here
                       </div>
                     </div>
                   ) : (
@@ -394,7 +453,11 @@ export default function Dashboard({
                         <div key={testItem.id || tIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
-                              <TestIcon size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                              {testItem.type === 'task' ? (
+                                <BookOpen size={15} color="#14b8a6" style={{ flexShrink: 0 }} />
+                              ) : (
+                                <TestIcon size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                              )}
                               <span style={{
                                 fontSize: '0.82rem',
                                 fontWeight: 600,

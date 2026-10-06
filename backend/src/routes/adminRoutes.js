@@ -12,12 +12,43 @@ const router = express.Router();
 router.get('/api/admin/users', verifyAuth, requireRoles('admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   try {
-    const { data, error } = await supabase
+    const { data: users, error } = await supabase
       .from('users')
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    res.json(data || []);
+
+    const { data: sessions, error: sessionsError } = await supabase
+      .from('active_sessions')
+      .select('user_email, status, last_heartbeat');
+    
+    let mergedData = users || [];
+    if (!sessionsError && sessions) {
+      const sessionMap = {};
+      sessions.forEach(s => {
+        if (s.user_email) sessionMap[s.user_email.toLowerCase()] = s;
+      });
+      const now = new Date();
+      mergedData = mergedData.map(u => {
+        const email = (u.mailid || u.email || '').toLowerCase();
+        const sess = sessionMap[email];
+        
+        let isActuallyOnline = false;
+        if (sess && sess.last_heartbeat) {
+          const hbDate = new Date(sess.last_heartbeat);
+          // If heartbeat is within the last 2 minutes (120000 ms)
+          isActuallyOnline = (now - hbDate) < 120000;
+        }
+
+        return {
+          ...u,
+          live_status: isActuallyOnline ? sess.status : 'Offline',
+          last_heartbeat: sess ? sess.last_heartbeat : null
+        };
+      });
+    }
+
+    res.json(mergedData);
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve users', details: err.message });
   }

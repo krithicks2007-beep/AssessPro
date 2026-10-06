@@ -4,7 +4,7 @@ import { getSupabaseClient } from '../../supabaseClient';
 import StaffDashboard from '../staff/Dashboard';
 import Students from '../staff/Students';
 
-export default function StaffDirectory({ allUsers }) {
+export default function StaffDirectory({ allUsers, onImpersonate }) {
   const [staffList, setStaffList] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); 
@@ -291,6 +291,12 @@ export default function StaffDirectory({ allUsers }) {
                 </button>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  onClick={() => { if(onImpersonate) onImpersonate(viewingStaff, 'staff'); }} 
+                  style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  View As
+                </button>
                 <button 
                   onClick={() => setActiveView('dashboard')} 
                   style={{ background: '#1d72fe', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}

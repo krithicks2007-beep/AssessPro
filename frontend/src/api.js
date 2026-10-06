@@ -67,6 +67,9 @@ const getAuthHeaders = () => {
 };
 
 export const api = {
+  // Expose supabase client getter for components that use api.getSupabaseClient()
+  getSupabaseClient,
+
   // 1. Health check
   async checkHealth() {
     try {
@@ -376,6 +379,7 @@ export const api = {
         const { data, error } = await supabase
           .from('tests')
           .select('*, groups(name, group_number, color)')
+          .neq('status', 'archived')
           .order('created_at', { ascending: false });
         if (!error && Array.isArray(data)) {
           let avgMap = {};
@@ -402,8 +406,7 @@ export const api = {
                 });
                 for (const tId in aggs) {
                    const tObj = data.find(t => t.id === tId);
-                   const isUniversal = !tObj || !tObj.assigned_students || tObj.assigned_students.length === 0;
-                   const denominator = isUniversal ? globalStudentCount : tObj.assigned_students.length;
+                   const denominator = aggs[tId].count;
                    avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
                 }
               }
@@ -460,6 +463,33 @@ export const api = {
     } catch (e) {}
     const all = await this.getTests();
     return all.find(t => String(t.id) === String(id)) || null; // null, not all[0]
+  },
+
+  async createTask(taskData) {
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error('Supabase client not initialized');
+
+      const { data, error } = await supabase
+        .from('tasks')
+        .insert([{
+          title: taskData.title,
+          description: taskData.description,
+          group_id: taskData.group_id,
+          max_score: taskData.max_score,
+          due_date: taskData.due_date,
+          status: taskData.status,
+          created_by: taskData.created_by,
+          assigned_students: taskData.assigned_students
+        }])
+        .select();
+      
+      if (error) throw error;
+      return data[0];
+    } catch (err) {
+      console.error('Failed to create task:', err);
+      throw err;
+    }
   },
 
   async createTest(testData) {
@@ -587,9 +617,13 @@ export const api = {
       
       if (!keepData) {
         await supabase.from('test_submissions').delete().eq('test_id', testId);
+        await supabase.from('active_sessions').update({ test_id: null }).eq('test_id', testId);
+        const { error } = await supabase.from('tests').delete().eq('id', testId);
+        if (error) throw new Error(`Supabase Error: `);
+      } else {
+        const { error } = await supabase.from('tests').update({ status: 'archived' }).eq('id', testId);
+        if (error) throw new Error(`Supabase Error: ${error.message}`);
       }
-      const { error } = await supabase.from('tests').delete().eq('id', testId);
-      if (error) throw new Error(`Supabase Error: ${error.message}`);
     }
     
     return true;
@@ -1171,9 +1205,16 @@ export const api = {
   async getStaffProfile(email) {
     if (!email) return null;
     const cleanEmail = email.toLowerCase().trim();
+
+    // First try: backend API using a silent fetch (won't dispatch session-expired)
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/staff/profile?email=${encodeURIComponent(cleanEmail)}`, {
-        headers: getAuthHeaders()
+      const token = localStorage.getItem('assesspro_auth_token');
+      const res = await fetch(`${API_BASE}/staff/profile?email=${encodeURIComponent(cleanEmail)}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        signal: AbortSignal.timeout(8000)
       });
       if (res.ok) {
         const data = await safeJson(res);
@@ -1181,27 +1222,51 @@ export const api = {
           return data;
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[getStaffProfile] Backend fetch failed, trying Supabase direct:', e.message);
+    }
 
-    // Check direct Supabase
+    // Second try: direct Supabase using authenticated session
     try {
       const supabase = getSupabaseClient();
       if (supabase) {
-        const { data: u } = await supabase.from('users').select('id, name, mailid').eq('mailid', cleanEmail).maybeSingle();
+        // Use the authenticated user ID from session if available
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        let userId = authUser?.id;
+        let userName = authUser?.user_metadata?.full_name || authUser?.user_metadata?.name;
+
+        // Lookup by email in users table
+        const { data: u } = await supabase
+          .from('users')
+          .select('id, name, mailid')
+          .eq('mailid', cleanEmail)
+          .maybeSingle();
+
         if (u) {
-          const { data: s } = await supabase.from('staff').select('*').eq('id', u.id).maybeSingle();
+          userId = u.id;
+          userName = u.name || userName;
+        }
+
+        if (userId) {
+          const { data: s } = await supabase
+            .from('staff')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
           if (s) {
             return {
               ...s,
-              name: u.name,
-              email: u.mailid
+              name: userName || s.staff_name || cleanEmail.split('@')[0],
+              email: cleanEmail
             };
           }
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[getStaffProfile] Supabase direct fetch failed:', e.message);
+    }
 
-    // LocalStorage fallback
+    // Third try: LocalStorage fallback
     try {
       const stored = localStorage.getItem(`assesspro_staff_prof_${cleanEmail}`);
       if (stored) return JSON.parse(stored);
@@ -1231,19 +1296,29 @@ export const api = {
       } catch (e) {}
     }
 
-    // Direct Supabase upsert fallback
+    // Direct Supabase upsert fallback — always runs to ensure all data is persisted
     try {
       const supabase = getSupabaseClient();
       if (supabase && profileData.id) {
         await supabase.from('users').update({ name: profileData.name }).eq('id', profileData.id);
-        await supabase.from('staff').upsert({
+        const staffPayload = {
           id: profileData.id,
           staff_code: profileData.staff_code || `FAC-${Date.now().toString().slice(-4)}`,
           department: profileData.department || 'Computer Science and Engineering',
-          designation: profileData.designation || 'Assistant Professor'
-        });
+          designation: profileData.designation || 'Assistant Professor',
+          staff_name: profileData.name || null
+        };
+        if (profileData.institution !== undefined) staffPayload.institution = profileData.institution;
+        if (profileData.phone !== undefined) staffPayload.phone = profileData.phone;
+        if (profileData.specialization !== undefined) staffPayload.specialization = profileData.specialization;
+        if (profileData.office_location !== undefined) staffPayload.office_location = profileData.office_location;
+        const { error: staffErr } = await supabase.from('staff').upsert(staffPayload);
+        if (staffErr) console.warn('[saveStaffProfile] Supabase staff upsert warning:', staffErr.message);
+        else saved = saved || profileData;
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[saveStaffProfile] Supabase fallback error:', e.message);
+    }
 
     return saved || profileData;
   },
@@ -1305,4 +1380,6 @@ export const api = {
 };
 
 export default api;
+
+
 

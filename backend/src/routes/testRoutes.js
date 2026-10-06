@@ -20,6 +20,7 @@ router.get('/api/tests', verifyAuth, async (req, res) => {
     const { data, error } = await supabase
       .from('tests')
       .select('*, groups(name, group_number, color)')
+      .neq('status', 'archived')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -49,8 +50,8 @@ router.get('/api/tests', verifyAuth, async (req, res) => {
           });
           for (const tId in aggs) {
              const tObj = data.find(t => t.id === tId);
-             const isUniversal = !tObj || !tObj.assigned_students || tObj.assigned_students.length === 0;
-             const denominator = isUniversal ? globalStudentCount : tObj.assigned_students.length;
+             const denominator = aggs[tId].count;
+
              avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
           }
         }
@@ -242,9 +243,13 @@ router.delete('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), asyn
   try {
     if (!keepData) {
       await supabase.from('test_submissions').delete().eq('test_id', id);
+      await supabase.from('active_sessions').update({ test_id: null }).eq('test_id', id);
+      const { error } = await supabase.from('tests').delete().eq('id', id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from('tests').update({ status: 'archived' }).eq('id', id);
+      if (error) throw error;
     }
-    const { error } = await supabase.from('tests').delete().eq('id', id);
-    if (error) throw error;
     res.json({ success: true, keepData });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete test', details: err.message });
@@ -386,3 +391,6 @@ router.get('/api/student/submissions', verifyAuth, requireRoles('student', 'staf
 // -------------------------------------------------------------
 
 export default router;
+
+
+

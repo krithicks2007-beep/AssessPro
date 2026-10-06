@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, BookOpen, ChevronRight, Save } from 'lucide-react';
 
-export default function CreateTestModal({ isOpen, onClose, groups, onSave, onLaunch }) {
+export default function CreateTestModal({ isOpen, onClose, groups, onSave, onLaunch, initialGroupId, notifyError }) {
   const [title, setTitle] = useState('');
   const [groupId, setGroupId] = useState('');
   const [duration, setDuration] = useState(45);
@@ -9,20 +9,20 @@ export default function CreateTestModal({ isOpen, onClose, groups, onSave, onLau
   useEffect(() => {
     if (isOpen) {
       setTitle('');
-      setGroupId(groups && groups.length > 0 ? groups[0].id : '');
+      setGroupId(initialGroupId || (groups && groups.length > 0 ? groups[0].id : ''));
       setDuration(45);
     }
-  }, [isOpen, groups]);
+  }, [isOpen, groups, initialGroupId]);
 
   if (!isOpen) return null;
 
   const handleSaveProgress = () => {
-    if (!title.trim()) return alert('Please enter a test title');
+    if (!title.trim()) return notifyError ? notifyError('Please enter a test title') : alert('Please enter a test title');
     onSave({ title, groupId, durationMinutes: duration });
   };
 
   const handleLaunchNow = () => {
-    if (!title.trim()) return alert('Please enter a test title');
+    if (!title.trim()) return notifyError ? notifyError('Please enter a test title') : alert('Please enter a test title');
     onLaunch({ title, groupId, durationMinutes: duration });
   };
 

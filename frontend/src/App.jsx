@@ -27,6 +27,10 @@ export default function App() {
   const [banDetails, setBanDetails] = useState(null);
   const [appActionSuccess, setAppActionSuccess] = useState('');
   const [appActionError, setAppActionError] = useState('');
+  
+  // Impersonation state
+  const [impersonatedUser, setImpersonatedUser] = useState(null);
+  const [impersonatedRole, setImpersonatedRole] = useState(null);
 
   const validateAndSetSession = useCallback(async (currentSession) => {
     console.log('validateAndSetSession called for user:', currentSession?.user?.email);
@@ -282,6 +286,8 @@ export default function App() {
     setCurrentRole(null);
     setStudentProfile(null);
     setShowOnboarding(false);
+    setImpersonatedUser(null);
+    setImpersonatedRole(null);
   };
 
   const handleEnterDemo = (role) => {
@@ -317,26 +323,36 @@ export default function App() {
 
   // If user is logged in, show their dedicated full-screen dashboard matching the screenshots
   if (currentUser) {
+    const activeRole = impersonatedRole || currentRole;
+    const activeUser = impersonatedUser || currentUser;
+
     const isSuperAdmin = isMasterAccount(currentUser?.email);
-    const userEmail = (currentUser?.email || '').toLowerCase().trim();
+    const userEmail = (activeUser?.email || '').toLowerCase().trim();
     const isBitDomain = userEmail.endsWith('@bitsathy.ac.in');
     const parsedBit = isBitDomain ? parseBitEmail(userEmail) : null;
 
     // Student profile fallback
     const effectiveStudentProfile = studentProfile || {
-      name: currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || userEmail.split('@')[0],
-      email: currentUser?.email,
+      name: activeUser?.user_metadata?.full_name || activeUser?.user_metadata?.name || userEmail.split('@')[0],
+      email: activeUser?.email,
       institution: isBitDomain ? 'Bannari Amman Institute of Technology' : '',
-      reg_no: isBitDomain ? (parsedBit?.predictedRegNo || '') : '',
-      department: isBitDomain ? (parsedBit?.department || '') : '',
-      year: isBitDomain ? (parsedBit?.academicYear || '') : '',
+      reg_no: isBitDomain ? (parsedBit?.predictedRegNo || activeUser?.reg_no || '') : '',
+      department: isBitDomain ? (parsedBit?.department || activeUser?.department || '') : '',
+      year: isBitDomain ? (parsedBit?.academicYear || activeUser?.year || '') : '',
       section: '',
       dob: '',
       phone: ''
     };
 
     return (
-      <div style={{ position: 'relative', width: '100%', minHeight: '100vh' }}>
+      <div style={{ position: 'relative', width: '100%', minHeight: '100vh', paddingTop: impersonatedUser ? '40px' : '0' }}>
+        {impersonatedUser && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: '#ef4444', color: '#fff', zIndex: 999999, padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>
+            ⚠️ You are currently viewing AssessPro as {activeRole}: {activeUser?.user_metadata?.full_name || activeUser?.name || activeUser?.email}. 
+            <button onClick={() => { setImpersonatedUser(null); setImpersonatedRole(null); }} style={{ marginLeft: '10px', padding: '4px 12px', cursor: 'pointer', background: '#fff', color: '#ef4444', border: 'none', borderRadius: '4px', fontWeight: 'bold' }}>Return to Admin</button>
+          </div>
+        )}
+        
         {/* Prominent Super Admin Switcher Bar */}
         {isSuperAdmin && (
           <div style={{
@@ -433,19 +449,23 @@ export default function App() {
           />
         )}
 
-        {currentRole === 'student' && (
+        {activeRole === 'student' && (
           <StudentLayout 
-            user={currentUser} 
+            user={activeUser} 
             studentProfile={effectiveStudentProfile}
             onRequestEditProfile={() => setShowOnboarding(true)}
             onSignOut={handleSignOut} 
           />
         )}
-        {currentRole === 'staff' && (
-          <StaffLayout user={currentUser} onSignOut={handleSignOut} initialTab="Dashboard" />
+        {activeRole === 'staff' && (
+          <StaffLayout user={activeUser} onSignOut={handleSignOut} initialTab="Dashboard" />
         )}
-        {currentRole === 'admin' && (
-          <AdminLayout user={currentUser} onSignOut={handleSignOut} />
+        {activeRole === 'admin' && (
+          <AdminLayout 
+            user={activeUser} 
+            onSignOut={handleSignOut} 
+            onImpersonate={(u, r) => { setImpersonatedUser(u); setImpersonatedRole(r); }}
+          />
         )}
 
         {/* Student Onboarding & Profile Modal */}

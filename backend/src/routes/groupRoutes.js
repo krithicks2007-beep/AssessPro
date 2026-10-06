@@ -56,7 +56,7 @@ router.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (re
     return res.status(503).json({ error: 'Database client not connected' });
   }
 
-  const { name, category, department, color } = req.body;
+  const { name, category, department, color, group_type } = req.body;
   const cleanName = (name || '').trim();
 
   if (cleanName.length < 3) {
@@ -65,10 +65,11 @@ router.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (re
 
   try {
     // Check maximum 6 groups limit
+    const targetUserId = req.body.staff_id || req.body.created_by || req.user.id;
     const { data: existing, error: countErr } = await supabase
       .from('groups')
       .select('id, group_number')
-      .eq('created_by', req.user.id);
+      .eq('created_by', targetUserId);
     if (countErr) throw countErr;
 
     if (existing && existing.length >= 6) {
@@ -91,7 +92,8 @@ router.post('/api/groups', verifyAuth, requireRoles('staff', 'admin'), async (re
       category: category || 'Specialization Subjects',
       department: department || 'General',
       color: assignedColor,
-      created_by: req.user.id
+      group_type: group_type || 'test',
+      created_by: targetUserId
     };
 
     const { data, error } = await supabase.from('groups').insert([newGroup]).select();

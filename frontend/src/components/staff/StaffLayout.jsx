@@ -16,17 +16,23 @@ import {
   Plus
 } from 'lucide-react';
 import api from '../../api';
+import { getSupabaseClient } from '../../supabaseClient';
 import ViewSubmissionsModal from './ViewSubmissionsModal';
+import TaskSubmissionsModal from './TaskSubmissionsModal';
 import ConfigureTestPage from './ConfigureTestPage';
 import StaffProfile from './StaffProfile';
 import StaffOnboardingModal from './StaffOnboardingModal';
 import CreateTestModal from './CreateTestModal';
+import CreateTaskModal from './CreateTaskModal';
+import AssignWorkModal from './AssignWorkModal';
 
 // Tab Components
 import Dashboard from './Dashboard';
 import Tests from './Tests';
+import Tasks from './Tasks';
 import GroupsModal from './Groups';
 import Students from './Students';
+import Reports from './Reports';
 
 export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' }) {
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -35,6 +41,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   // Live Database States
   const [groups, setGroups] = useState([]);
   const [tests, setTests] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
@@ -47,6 +54,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   // Modals
   const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
   const [selectedTestForSubmissions, setSelectedTestForSubmissions] = useState(null);
+  const [selectedTaskForSubmissions, setSelectedTaskForSubmissions] = useState(null);
 
   // Group Form States
   const [editingGroupId, setEditingGroupId] = useState(null);
@@ -56,9 +64,15 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   const [showCreateTestModal, setShowCreateTestModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupCategory, setNewGroupCategory] = useState('Core Subjects');
+  const [newGroupType, setNewGroupType] = useState('test');
+  const [showAssignWorkModal, setShowAssignWorkModal] = useState(false);
 
   // Test Form States
   const [newTestGroupId, setNewTestGroupId] = useState('');
+
+  // Task Form States
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false);
+  const [newTaskGroupId, setNewTaskGroupId] = useState('');
 
   const facultyName = staffProfile?.name 
     || staffProfile?.full_name 
@@ -77,29 +91,91 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
 
   const loadData = async () => {
     try {
-      const [fetchedGroups, fetchedTests, fetchedProfile, fetchedStudents] = await Promise.all([
+      // Load staff profile FIRST and independently — critical for displaying dept/name
+      let resolvedProfile = null;
+      try {
+        const supabase = getSupabaseClient();
+        if (supabase && user?.email) {
+          const email = user.email.toLowerCase().trim();
+          // Try by email lookup (most reliable)
+          const { data: userRow } = await supabase
+            .from('users')
+            .select('id, name, mailid')
+            .eq('mailid', email)
+            .maybeSingle();
+          const lookupId = userRow?.id || user?.id;
+          if (lookupId) {
+            const { data: staffRow } = await supabase
+              .from('staff')
+              .select('*')
+              .eq('id', lookupId)
+              .maybeSingle();
+            if (staffRow) {
+              resolvedProfile = {
+                ...staffRow,
+                name: userRow?.name || user?.user_metadata?.full_name || user?.user_metadata?.name || staffRow.staff_name || email.split('@')[0],
+                email
+              };
+            }
+          }
+        }
+      } catch (profileErr) {
+        console.warn('[loadData] Supabase staff profile fetch failed:', profileErr.message);
+      }
+
+      // Fallback to API if direct Supabase failed
+      if (!resolvedProfile) {
+        resolvedProfile = await api.getStaffProfile(user?.email);
+      }
+
+      const [fetchedGroups, fetchedTests, fetchedStudents] = await Promise.all([
         // Pass staffId so backend returns ONLY this staff member's groups
         api.getGroups({ staffId: user?.id }),
         api.getTests({ staffEmail: user?.email, staffId: user?.id }),
-        api.getStaffProfile(user?.email),
         // Only count students assigned to THIS staff member
         api.getAllStudents({ assigned_to: user?.id })
       ]);
       setGroups(fetchedGroups || []);
       setTests(fetchedTests || []);
+
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        const { data: fetchedTasks } = await supabase.from('tasks').select('*, groups(*)').eq('created_by', user?.id).order('created_at', { ascending: false });
+        
+        // Fetch task submissions to calculate averages for the dashboard
+        const { data: allTaskSubs } = await supabase.from('task_submissions').select('*');
+        
+        if (fetchedTasks && allTaskSubs) {
+           fetchedTasks.forEach(t => {
+               const subs = allTaskSubs.filter(s => s.task_id === t.id && s.status === 'reviewed' && s.score != null);
+               if (subs.length > 0) {
+                   t.avg = subs.reduce((acc, s) => acc + ((s.score / (t.max_score || 100)) * 100), 0) / subs.length;
+               } else {
+                   t.avg = 0;
+               }
+           });
+        }
+        
+        setTasks(fetchedTasks || []);
+      }
+
       // Count only students assigned to this staff member
       setTotalStudentsCount(Array.isArray(fetchedStudents) ? fetchedStudents.length : 0);
 
-      if (fetchedProfile) {
-        setStaffProfile(fetchedProfile);
+      if (resolvedProfile && resolvedProfile.department) {
+        setStaffProfile(resolvedProfile);
         // Only show onboarding if profile is genuinely new — no department and no staff code set yet
         const hasSetUpProfile =
-          fetchedProfile.department &&
-          fetchedProfile.department !== 'Select Department' &&
-          fetchedProfile.staff_code;
+          resolvedProfile.department &&
+          resolvedProfile.department !== 'Select Department' &&
+          resolvedProfile.staff_code;
         if (!hasSetUpProfile) {
           setShowOnboarding(true);
         }
+      } else if (resolvedProfile) {
+        // Has profile data but incomplete
+        setStaffProfile(resolvedProfile);
+        setShowOnboarding(true);
       } else {
         // Brand new staff with zero profile data — prompt setup
         setShowOnboarding(true);
@@ -158,7 +234,9 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       await api.createGroup({
         name: newGroupName,
         category: newGroupCategory,
-        department: facultyDept
+        department: facultyDept,
+        group_type: newGroupType,
+        created_by: user?.id
       });
       setNewGroupName('');
       notifySuccess('New group created! Live gauges and student views updated.');
@@ -180,10 +258,58 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   };
 
   const [selectedDraftTest, setSelectedDraftTest] = useState(null);
+  const [selectedTaskForEdit, setSelectedTaskForEdit] = useState(null);
 
-  // Test Creation Flow (Modal)
   const handleCreateDraft = () => {
     setShowCreateTestModal(true);
+  };
+
+  const handleAssignTest = (groupId) => {
+    setNewTestGroupId(groupId);
+    setShowAssignWorkModal(false);
+    setShowCreateTestModal(true);
+  };
+
+  const handleAssignTask = (groupId) => {
+    setNewTaskGroupId(groupId);
+    setShowAssignWorkModal(false);
+    setShowCreateTaskModal(true);
+  };
+
+  const executeCreateTask = async (taskData) => {
+    try {
+      if (selectedTaskForEdit) {
+        const supabase = getSupabaseClient();
+        await supabase.from('tasks').update({
+          title: taskData.title.trim(),
+          description: taskData.description.trim(),
+          group_id: taskData.groupId,
+          max_score: taskData.maxScore,
+          due_date: taskData.dueDate,
+          status: taskData.status,
+          assigned_students: taskData.assignedStudents
+        }).eq('id', selectedTaskForEdit.id);
+      } else {
+        await api.createTask({
+          title: taskData.title.trim(),
+          description: taskData.description.trim(),
+          group_id: taskData.groupId,
+          max_score: taskData.maxScore,
+          due_date: taskData.dueDate,
+          status: taskData.status,
+          created_by: user?.id,
+          assigned_students: taskData.assignedStudents
+        });
+      }
+      
+      setShowCreateTaskModal(false);
+      setSelectedTaskForEdit(null);
+      await loadData();
+      notifySuccess(taskData.status === 'published' ? 'Task published successfully!' : 'Task draft saved successfully!');
+      setActiveTab('Tasks');
+    } catch (err) {
+      notifyError(err.message || 'Failed to create task');
+    }
   };
 
   const executeCreateTest = async (testData, shouldLaunch) => {
@@ -254,6 +380,56 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
     }
   };
 
+  const handleCopyTest = async (testToCopy) => {
+    try {
+      await api.createTest({
+        title: testToCopy.title + ' (Copy)',
+        groupId: testToCopy.group_id,
+        durationMinutes: testToCopy.duration_minutes,
+        status: 'draft',
+        questions: testToCopy.questions || [],
+        testType: testToCopy.test_type,
+        maxScore: testToCopy.max_score,
+        allowLatecomers: testToCopy.allow_latecomers,
+        lateLimitMinutes: testToCopy.late_limit_minutes,
+        assignedStudents: testToCopy.assigned_students,
+        auto_launch: false,
+        userId: user?.id,
+        userEmail: user?.email,
+        created_by: user?.id,
+        created_by_email: user?.email
+      });
+      notifySuccess('Test cloned successfully as a draft!');
+      await loadData();
+    } catch (err) {
+      notifyError(err.message || 'Failed to copy test');
+    }
+  };
+
+  const handleCopyTask = async (taskToCopy) => {
+    try {
+      const supabase = getSupabaseClient();
+      const newTask = {
+        title: taskToCopy.title + ' (Copy)',
+        description: taskToCopy.description,
+        group_id: taskToCopy.group_id,
+        max_score: taskToCopy.max_score,
+        due_date: taskToCopy.due_date,
+        status: 'draft',
+        created_by: user?.id,
+        assigned_students: taskToCopy.assigned_students
+      };
+      
+      const { error } = await supabase.from('tasks').insert([newTask]);
+      if (error) throw error;
+      
+      notifySuccess('Task cloned successfully as a draft!');
+      await loadData();
+    } catch (err) {
+      notifyError(err.message || 'Failed to copy task');
+    }
+  };
+
   const handleDeleteTest = async (testId, keepData) => {
     try {
       // Optimistically remove from state so the card immediately vanishes
@@ -293,6 +469,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
     { label: 'Dashboard', icon: Home },
     { label: 'Manage Groups', icon: ListOrdered },
     { label: 'Tests', icon: FileText },
+    { label: 'Tasks', icon: FileText },
     { label: 'Question Bank', icon: HelpCircle },
     { label: 'Results', icon: BarChart2 },
     { label: 'Students', icon: Users },
@@ -381,8 +558,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
 
             <div className="header-right">
               <button
-                onClick={handleCreateDraft}
-                title="Create New Test"
+                onClick={() => setShowAssignWorkModal(true)}
+                title="Assign Work (Tests/Tasks)"
                 style={{
                   width: '36px',
                   height: '36px',
@@ -472,6 +649,41 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             onQuickLaunch={handleQuickLaunch}
             onViewSubmissions={setSelectedTestForSubmissions}
             onDeleteTest={handleDeleteTest}
+            onCopyTest={handleCopyTest}
+          />
+        ) : activeTab === 'Tasks' ? (
+          <Tasks
+            tasks={tasks}
+            onCreateTask={() => {
+              setSelectedTaskForEdit(null);
+              setShowAssignWorkModal(true);
+            }}
+            onViewSubmissions={(t) => setSelectedTaskForSubmissions(t)}
+            onCopyTask={handleCopyTask}
+            onConfigureTask={(t) => {
+              setSelectedTaskForEdit(t);
+              setShowCreateTaskModal(true);
+            }}
+            onQuickLaunch={async (t) => {
+              try {
+                const supabase = getSupabaseClient();
+                await supabase.from('tasks').update({ status: 'published' }).eq('id', t.id);
+                notifySuccess('Task launched successfully!');
+                await loadData();
+              } catch (err) {
+                notifyError('Failed to launch task');
+              }
+            }}
+            onDeleteTask={async (taskId) => {
+              try {
+                const supabase = getSupabaseClient();
+                await supabase.from('tasks').delete().eq('id', taskId);
+                setTasks(prev => prev.filter(t => t.id !== taskId));
+                notifySuccess('Task deleted successfully');
+              } catch (err) {
+                notifyError('Failed to delete task');
+              }
+            }}
           />
         ) : activeTab === 'Manage Groups' ? (
           <GroupsModal
@@ -488,13 +700,22 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             setNewGroupName={setNewGroupName}
             newGroupCategory={newGroupCategory}
             setNewGroupCategory={setNewGroupCategory}
+            newGroupType={newGroupType}
+            setNewGroupType={setNewGroupType}
             facultyDept={facultyDept}
             onAddNewGroup={handleAddNewGroup}
+          />
+        ) : activeTab === 'Reports' ? (
+          <Reports
+            groups={safeGroups}
+            tests={safeTests}
+            tasks={tasks}
           />
         ) : (
           <Dashboard
             groups={safeGroups}
             tests={safeTests}
+            tasks={tasks}
             totalTestsCount={totalTestsCount}
             totalStudentsCount={totalStudentsCount}
             publishedCount={publishedCount}
@@ -533,6 +754,22 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         groups={safeGroups}
         onSave={handleSaveProgress}
         onLaunch={handleLaunchNow}
+        initialGroupId={newTestGroupId}
+        notifyError={notifyError}
+      />
+
+      <CreateTaskModal
+        isOpen={showCreateTaskModal}
+        onClose={() => {
+          setShowCreateTaskModal(false);
+          setSelectedTaskForEdit(null);
+        }}
+        groups={safeGroups}
+        initialGroupId={newTaskGroupId}
+        existingTask={selectedTaskForEdit}
+        onSave={(data) => executeCreateTask(data)}
+        onLaunch={(data) => executeCreateTask(data)}
+        notifyError={notifyError}
       />
 
       <ViewSubmissionsModal
@@ -540,6 +777,24 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         onClose={() => setSelectedTestForSubmissions(null)}
         test={selectedTestForSubmissions}
       />
+      
+      <TaskSubmissionsModal
+        isOpen={Boolean(selectedTaskForSubmissions)}
+        onClose={() => setSelectedTaskForSubmissions(null)}
+        task={selectedTaskForSubmissions}
+        notifySuccess={notifySuccess}
+        notifyError={notifyError}
+      />
+
+      {showAssignWorkModal && (
+        <AssignWorkModal
+          groups={safeGroups}
+          onClose={() => setShowAssignWorkModal(false)}
+          onAssignTest={handleAssignTest}
+          onAssignTask={handleAssignTask}
+        />
+      )}
     </div>
   );
 }
+

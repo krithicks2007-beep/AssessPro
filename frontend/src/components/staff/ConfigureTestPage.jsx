@@ -15,7 +15,8 @@ import {
   Check,
   Eye,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  X
 } from 'lucide-react';
 import api from '../../api';
 import { extractTextFromPDF } from '../../utils/pdfParser';
@@ -609,6 +610,8 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
                         setShowQuestionsPreview(prev => !prev);
                       }}
                       style={{
+                        position: 'relative',
+                        zIndex: 10,
                         background: '#ffffff',
                         border: '1px solid #cbd5e1',
                         borderRadius: '6px',
@@ -656,43 +659,94 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
               )}
             </div>
 
-            {/* Expandable Question Preview */}
+            {/* Expandable Question Preview & Editor */}
             {showQuestionsPreview && questions.length > 0 && (
-              <div style={{ marginTop: '1.25rem', border: '1px solid #e2e8f0', borderRadius: '10px', background: '#f8fafc', padding: '1.25rem', textAlign: 'left', maxHeight: '380px', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
-                  <h4 style={{ margin: 0, fontSize: '0.92rem', fontWeight: 700, color: '#1e293b' }}>
-                    Parsed Questions from {uploadedFileName} ({questions.length})
-                  </h4>
-                  <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 600 }}>✓ Verified Direct from File</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
+                background: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(4px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem'
+              }}>
+                <div style={{
+                  background: '#f8fafc', width: '100%', maxWidth: '1000px', height: '100%', maxHeight: '90vh',
+                  borderRadius: '16px', display: 'flex', flexDirection: 'column',
+                  boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', background: '#ffffff', borderBottom: '1px solid #e2e8f0' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
+                        Parsed Questions ({questions.length})
+                      </h4>
+                      <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600 }}>Editable direct from file</span>
+                    </div>
+                    <button onClick={() => setShowQuestionsPreview(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <X size={24} color="#64748b" />
+                    </button>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {questions.map((q, idx) => (
-                    <div key={q.id || idx} style={{ background: '#ffffff', padding: '0.85rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.88rem', color: '#0f172a', marginBottom: '0.4rem' }}>
-                        {idx + 1}. {q.question}
+                    <div key={q.id || idx} style={{ background: '#ffffff', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontWeight: 700, color: '#0f172a', paddingTop: '0.4rem' }}>{idx + 1}.</span>
+                        <input
+                          type="text"
+                          value={q.question || ''}
+                          onChange={(e) => {
+                            const updated = [...questions];
+                            updated[idx].question = e.target.value;
+                            setQuestions(updated);
+                          }}
+                          style={{ flex: 1, padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.88rem', fontWeight: 600, color: '#0f172a', width: '100%' }}
+                        />
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.35rem', fontSize: '0.82rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', paddingLeft: '1.5rem' }}>
                         {q.options?.map((opt, optIdx) => {
                           const isCorrect = q.correct_index === optIdx;
                           const letter = String.fromCharCode(65 + optIdx);
                           return (
-                            <div key={optIdx} style={{
-                              padding: '0.35rem 0.6rem',
-                              borderRadius: '6px',
-                              background: isCorrect ? '#ecfdf5' : '#f8fafc',
-                              border: isCorrect ? '1px solid #86efac' : '1px solid #e2e8f0',
-                              color: isCorrect ? '#166534' : '#475569',
-                              fontWeight: isCorrect ? 600 : 400
-                            }}>
-                              {letter}) {opt} {isCorrect && '✓'}
+                            <div key={optIdx} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <input
+                                type="radio"
+                                name={`q-${idx}-correct`}
+                                checked={isCorrect}
+                                onChange={() => {
+                                  const updated = [...questions];
+                                  updated[idx].correct_index = optIdx;
+                                  setQuestions(updated);
+                                }}
+                                style={{ width: '14px', height: '14px', accentColor: '#10b981', cursor: 'pointer' }}
+                                title="Mark as Correct Answer"
+                              />
+                              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569' }}>{letter})</span>
+                              <input
+                                type="text"
+                                value={opt || ''}
+                                onChange={(e) => {
+                                  const updated = [...questions];
+                                  updated[idx].options[optIdx] = e.target.value;
+                                  setQuestions(updated);
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '0.4rem 0.5rem',
+                                  borderRadius: '6px',
+                                  border: isCorrect ? '1px solid #10b981' : '1px solid #e2e8f0',
+                                  background: isCorrect ? '#ecfdf5' : '#f8fafc',
+                                  color: isCorrect ? '#065f46' : '#334155',
+                                  fontSize: '0.82rem',
+                                  fontWeight: isCorrect ? 600 : 400
+                                }}
+                              />
                             </div>
                           );
                         })}
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
               </div>
+            </div>
             )}
           </div>
         </div>
@@ -712,26 +766,44 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
 
         {/* Footer Actions */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem', paddingBottom: '3rem' }}>
-          <button
-            onClick={(e) => handleSubmit(e, 'draft')}
-            disabled={loading}
-            style={{
-              padding: '0.85rem 1.5rem', borderRadius: '8px', border: '1px solid #1d72fe', background: '#eff6ff', color: '#1d72fe', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
-            }}
-          >
-            <Clock size={18} />
-            {loading ? 'Saving...' : 'Save for Later'}
-          </button>
-          <button
-            onClick={(e) => handleSubmit(e, 'published')}
-            disabled={loading}
-            style={{
-              padding: '0.85rem 2rem', borderRadius: '8px', border: 'none', background: '#1d72fe', color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 6px rgba(29, 114, 254, 0.25)'
-            }}
-          >
-            <CheckCircle2 size={18} />
-            {loading ? 'Publishing...' : 'Launch Now'}
-          </button>
+          {existingTest?.status === 'published' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', background: '#f8fafc', padding: '1rem 1.5rem', borderRadius: '8px', border: '1px solid #e2e8f0', width: '100%', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.9rem', color: '#475569', fontWeight: 600 }}>
+                ℹ️ This assessment is currently published. Changes cannot be saved.
+              </span>
+              <button
+                onClick={onBack}
+                style={{
+                  padding: '0.85rem 2rem', borderRadius: '8px', border: 'none', background: '#64748b', color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                }}
+              >
+                Go Back
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={(e) => handleSubmit(e, 'draft')}
+                disabled={loading}
+                style={{
+                  padding: '0.85rem 1.5rem', borderRadius: '8px', border: '1px solid #1d72fe', background: '#eff6ff', color: '#1d72fe', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem'
+                }}
+              >
+                <Clock size={18} />
+                {loading ? 'Saving...' : 'Save for Later'}
+              </button>
+              <button
+                onClick={(e) => handleSubmit(e, 'published')}
+                disabled={loading}
+                style={{
+                  padding: '0.85rem 2rem', borderRadius: '8px', border: 'none', background: '#1d72fe', color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 6px rgba(29, 114, 254, 0.25)'
+                }}
+              >
+                <CheckCircle2 size={18} />
+                {loading ? 'Publishing...' : 'Launch Now'}
+              </button>
+            </>
+          )}
         </div>
 
       </div>

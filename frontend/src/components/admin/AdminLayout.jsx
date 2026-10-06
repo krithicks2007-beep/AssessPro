@@ -18,7 +18,7 @@ import StudentDirectory from './StudentDirectory';
 import StudentRequests from './StudentRequests';
 import api from '../../api';
 
-export default function AdminDashboard({ user, onSignOut }) {
+export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
   const [usersList, setUsersList] = useState([]);
   const [staffRequests, setStaffRequests] = useState([]);
   const [testsList, setTestsList] = useState([]);
@@ -310,6 +310,34 @@ export default function AdminDashboard({ user, onSignOut }) {
                     </div>
                   </div>
                 </div>
+
+                {/* Online Users List */}
+                {usersList.filter(u => u.isOnline).length > 0 && (
+                  <div style={{ background: '#fff', padding: '1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h3 style={{ marginTop: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></div>
+                      Active Sessions
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
+                      {usersList.filter(u => u.isOnline).map(u => (
+                        <div key={u.email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: '#f8fafc', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b' }}>{u.name}</span>
+                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.email}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', background: u.role === 'admin' ? '#fee2e2' : u.role === 'staff' ? '#dbeafe' : '#f3f4f6', color: u.role === 'admin' ? '#991b1b' : u.role === 'staff' ? '#1e40af' : '#475569', textTransform: 'capitalize' }}>
+                              {u.role}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: u.status === 'In Exam' ? '#ea580c' : '#10b981', fontWeight: 600 }}>
+                              {u.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -416,11 +444,11 @@ export default function AdminDashboard({ user, onSignOut }) {
             )}
 
             {activeTab === 'Staff Directory' && (
-              <StaffDirectory allUsers={usersList} />
+              <StaffDirectory allUsers={usersList} onImpersonate={onImpersonate} />
             )}
 
             {activeTab === 'Student Directory' && (
-              <StudentDirectory allUsers={usersList} />
+              <StudentDirectory allUsers={usersList} onImpersonate={onImpersonate} />
             )}
 
             {activeTab === 'Student Requests' && (
