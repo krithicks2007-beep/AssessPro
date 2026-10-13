@@ -1,9 +1,5 @@
 import React from 'react';
 import {
-  FileText,
-  Check,
-  Hourglass,
-  BarChart2,
   BookOpen,
   Cpu,
   Bot,
@@ -16,8 +12,12 @@ import {
   Monitor,
   Building,
   ArrowRight,
-  Layers,
-  Sparkles
+  BarChart3,
+  FileCheck,
+  ClipboardCheck,
+  FileStack,
+  Clock,
+  CheckCircle2
 } from 'lucide-react';
 import CircleRing from '../shared/CircleRing';
 
@@ -68,8 +68,6 @@ export default function Dashboard({
   assignedStaff = null,
   onNavigateToTests
 }) {
-  const firstName = studentName.split(' ')[0] || 'Student';
-
   // Total tests calculation - Strict zero defaults
   const totalTestsCount = tests.length;
   const displayCompletedCount = testsCompletedCount;
@@ -118,41 +116,6 @@ export default function Dashboard({
         <div />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            background: '#eff6ff',
-            border: '1px solid #bfdbfe',
-            color: '#1d4ed8',
-            padding: '0.45rem 1rem',
-            borderRadius: '30px',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            boxShadow: '0 2px 6px rgba(29, 78, 216, 0.05)'
-          }}>
-            <Check size={14} />
-            <span>Completed: <strong>{displayCompletedCount}</strong></span>
-          </div>
-
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            background: '#fff7ed',
-            border: '1px solid #fed7aa',
-            color: '#b45309',
-            padding: '0.45rem 1rem',
-            borderRadius: '30px',
-            fontSize: '0.8rem',
-            fontWeight: 600,
-            boxShadow: '0 2px 6px rgba(180, 83, 9, 0.05)'
-          }}>
-            <Hourglass size={14} />
-            <span>Upcoming: <strong>{displayPendingCount}</strong></span>
-          </div>
-
           {/* Assigned Staff Notice (Requirement 5) */}
           {(assignedStaff?.assigned_staff_name || assignedStaff?.staffName) ? (
             <div style={{
@@ -191,131 +154,251 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Row 1: KPI Progress Rings (Overall, Tests, Tasks) */}
+      {/* 6 Metric & Stat Boxes in One Single Line */}
       <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-        gap: '1.25rem',
-        marginBottom: '1.75rem'
+        display: 'flex',
+        gap: '0.85rem',
+        marginBottom: '1.75rem',
+        alignItems: 'stretch',
+        width: '100%'
       }}>
-        {/* Metric 1: Overall Percentage (Purple Theme) */}
+        {/* Metric 1: Overall Course Grade (Purple Theme - Light, Simple & Premium with top-right Badge) */}
         <div style={{
-          background: '#f3e8ff',
+          position: 'relative',
+          flex: '1.25 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #faf5ff 100%)',
           borderRadius: '16px',
-          padding: '1.5rem',
-          border: '1px solid #e9d5ff',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          padding: '1.25rem 0.75rem 1.15rem 0.75rem',
+          border: '1px solid #ede4ff',
+          boxShadow: '0 4px 14px rgba(139, 92, 246, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem'
+          justifyContent: 'center',
+          gap: '0.65rem'
         }}>
+          {/* Top-Right Icon Badge */}
           <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
-            background: '#8b5cf6',
-            color: '#ffffff',
+            position: 'absolute',
+            top: '11px',
+            right: '11px',
+            width: '28px',
+            height: '28px',
+            borderRadius: '8px',
+            background: '#f3e8ff',
+            color: '#8b5cf6',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flexShrink: 0
+            boxShadow: '0 1px 3px rgba(139, 92, 246, 0.08)'
           }}>
-            <BarChart2 size={34} />
+            <BarChart3 size={15} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-            <CircleRing 
-              percentage={overallPercentage} 
-              color="#8b5cf6" 
-              size={130} 
-              strokeWidth={9} 
-              fontSizeOverride={overallPercentage === 100 ? '1.5rem' : '1.8rem'}
-              fontColorOverride="#4c1d95"
-            />
-            <div style={{ fontSize: '0.9rem', color: '#6d28d9', fontWeight: 700 }}>
-              Overall Course Grade
-            </div>
+
+          <CircleRing 
+            percentage={overallPercentage} 
+            color="#8b5cf6" 
+            size={84} 
+            strokeWidth={7.5} 
+            fontSizeOverride={overallPercentage === 100 ? '1.1rem' : '1.25rem'}
+            fontColorOverride="#4c1d95"
+          />
+          <div style={{ fontSize: '0.88rem', color: '#334155', fontWeight: 700, textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em' }}>
+            Overall Course Grade
           </div>
         </div>
 
-        {/* Metric 2: Test Average (Blue Theme) */}
+        {/* Metric 2: Test Average (Blue Theme - Light, Simple & Premium with top-right Badge) */}
         <div style={{
-          background: '#dbeafe',
+          position: 'relative',
+          flex: '1.25 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #f2f7ff 100%)',
           borderRadius: '16px',
-          padding: '1.5rem',
-          border: '1px solid #bfdbfe',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+          padding: '1.25rem 0.75rem 1.15rem 0.75rem',
+          border: '1px solid #dce9fe',
+          boxShadow: '0 4px 14px rgba(59, 130, 246, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem'
+          justifyContent: 'center',
+          gap: '0.65rem'
         }}>
+          {/* Top-Right Icon Badge */}
           <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
-            background: '#3b82f6',
-            color: '#ffffff',
+            position: 'absolute',
+            top: '11px',
+            right: '11px',
+            width: '28px',
+            height: '28px',
+            borderRadius: '8px',
+            background: '#e0f2fe',
+            color: '#2563eb',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            flexShrink: 0
+            boxShadow: '0 1px 3px rgba(37, 99, 235, 0.08)'
           }}>
-            <FileText size={34} />
+            <FileCheck size={15} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-            <CircleRing 
-              percentage={testAverage} 
-              color="#3b82f6" 
-              size={130} 
-              strokeWidth={9} 
-              fontSizeOverride={testAverage === 100 ? '1.5rem' : '1.8rem'}
-              fontColorOverride="#1e3a8a"
-            />
-            <div style={{ fontSize: '0.9rem', color: '#1e3a8a', fontWeight: 700 }}>
-              Test Average
-            </div>
+
+          <CircleRing 
+            percentage={testAverage} 
+            color="#3b82f6" 
+            size={84} 
+            strokeWidth={7.5} 
+            fontSizeOverride={testAverage === 100 ? '1.1rem' : '1.25rem'}
+            fontColorOverride="#1e3a8a"
+          />
+          <div style={{ fontSize: '0.88rem', color: '#334155', fontWeight: 700, textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em' }}>
+            Test Average
           </div>
         </div>
 
-        {/* Metric 3: Task Average (Green/Teal Theme) */}
+        {/* Metric 3: Task Average (Green/Teal Theme - Light, Simple & Premium with top-right Badge) */}
         <div style={{
-          background: '#ccfbf1',
+          position: 'relative',
+          flex: '1.25 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #f0faf6 100%)',
           borderRadius: '16px',
-          padding: '1.5rem',
-          border: '1px solid #99f6e4',
-          boxShadow: '0 4px 12px rgba(20, 184, 166, 0.08)',
+          padding: '1.25rem 0.75rem 1.15rem 0.75rem',
+          border: '1px solid #d1f4e8',
+          boxShadow: '0 4px 14px rgba(20, 184, 166, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem'
+          justifyContent: 'center',
+          gap: '0.65rem'
         }}>
+          {/* Top-Right Icon Badge */}
           <div style={{
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
-            background: '#14b8a6',
-            color: '#ffffff',
+            position: 'absolute',
+            top: '11px',
+            right: '11px',
+            width: '28px',
+            height: '28px',
+            borderRadius: '8px',
+            background: '#ccfbf1',
+            color: '#0d9488',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            boxShadow: '0 1px 3px rgba(20, 184, 166, 0.08)'
+          }}>
+            <ClipboardCheck size={15} />
+          </div>
+
+          <CircleRing 
+            percentage={taskAverage} 
+            color="#14b8a6" 
+            size={84} 
+            strokeWidth={7.5} 
+            fontSizeOverride={taskAverage === 100 ? '1.1rem' : '1.25rem'}
+            fontColorOverride="#115e59"
+          />
+          <div style={{ fontSize: '0.88rem', color: '#334155', fontWeight: 700, textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em' }}>
+            Task Average
+          </div>
+        </div>
+
+        {/* Stat 1: Total Tests (Light, Simple & Premium with Circular Icon) */}
+        <div style={{
+          flex: '0.75 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #f4f8ff 100%)',
+          borderRadius: '16px',
+          padding: '1.15rem 0.5rem',
+          border: '1px solid #dce9fe',
+          boxShadow: '0 4px 14px rgba(37, 99, 235, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <div style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            background: '#e0f2fe',
+            color: '#2563eb',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '0.45rem',
             flexShrink: 0
           }}>
-            <BookOpen size={34} />
+            <FileStack size={20} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-            <CircleRing 
-              percentage={taskAverage} 
-              color="#14b8a6" 
-              size={130} 
-              strokeWidth={9} 
-              fontSizeOverride={taskAverage === 100 ? '1.5rem' : '1.8rem'}
-              fontColorOverride="#115e59"
-            />
-            <div style={{ fontSize: '0.9rem', color: '#134e4a', fontWeight: 700 }}>
-              Task Average
-            </div>
+          <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#1e40af', lineHeight: 1, letterSpacing: '-0.02em' }}>{totalTestsCount}</div>
+          <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Total Tests</div>
+        </div>
+        
+        {/* Stat 2: Upcoming Tests (Light, Simple & Premium with Circular Icon) */}
+        <div style={{
+          flex: '0.75 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #fffbf2 100%)',
+          borderRadius: '16px',
+          padding: '1.15rem 0.5rem',
+          border: '1px solid #fee6c7',
+          boxShadow: '0 4px 14px rgba(245, 158, 11, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "'Outfit', sans-serif"
+        }}>
+          <div style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            background: '#ffedd5',
+            color: '#ea580c',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '0.45rem',
+            flexShrink: 0
+          }}>
+            <Clock size={19} />
           </div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#b45309', lineHeight: 1, letterSpacing: '-0.01em' }}>{displayPendingCount}</div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Upcoming Tests</div>
+        </div>
+        
+        {/* Stat 3: Completed Tests (Light, Simple & Premium with Circular Icon) */}
+        <div style={{
+          flex: '0.75 1 0',
+          minWidth: 0,
+          background: 'linear-gradient(180deg, #ffffff 15%, #f1fbf5 100%)',
+          borderRadius: '16px',
+          padding: '1.15rem 0.5rem',
+          border: '1px solid #ccf4dc',
+          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "'Outfit', sans-serif"
+        }}>
+          <div style={{
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            background: '#dcfce7',
+            color: '#059669',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '0.45rem',
+            flexShrink: 0
+          }}>
+            <CheckCircle2 size={20} />
+          </div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#047857', lineHeight: 1, letterSpacing: '-0.01em' }}>{displayCompletedCount}</div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Completed Tests</div>
         </div>
       </div>
 
