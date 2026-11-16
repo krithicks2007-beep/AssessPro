@@ -66,7 +66,7 @@ export default function DeletedUserScreen({ user, role, banDetails, onSignOut })
           <p style={{ color: '#475569', fontSize: '1rem', lineHeight: 1.6, marginBottom: '2rem' }}>
             {requestState === 'denied' 
               ? `Your reinstatement request was not approved by the administrator.`
-              : `Your admin removed you from Assess Pro. Please contact krithickrajs.cs25@bitsathy.ac.in.`
+              : `You are banned from AssessPro. Please contact krithickrajs.cs25@bitsathy.ac.in to request reinstatement.`
             }
           </p>
 

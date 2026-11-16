@@ -17,6 +17,8 @@ import StaffDirectory from './StaffDirectory';
 import StudentDirectory from './StudentDirectory';
 import StudentRequests from './StudentRequests';
 import api from '../../api';
+import LoadingScreen from '../shared/LoadingScreen';
+import OfflineBanner from '../shared/OfflineBanner';
 
 export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
   const [usersList, setUsersList] = useState([]);
@@ -28,8 +30,8 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
   const [actionMsg, setActionMsg] = useState('');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
+  const loadUsers = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     setLoadError('');
     try {
       const data = await api.getAdminUsers();
@@ -55,9 +57,9 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
       setUsersList(mapped);
     } catch (err) {
       console.error('Error fetching admin users:', err);
-      setLoadError(err.message || 'Failed to load users. Check Supabase connection.');
+      if (isInitial) setLoadError(err.message || 'Failed to load users. Check Supabase connection.');
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, []);
 
@@ -80,14 +82,16 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
   }, []);
 
   useEffect(() => {
-    loadUsers();
+    loadUsers(true);
     loadStaffRequests();
     loadTests();
-    const staffInterval = setInterval(loadStaffRequests, 3500);
-    const usersInterval = setInterval(loadUsers, 10000); // Live poll presence every 10s
+    const staffInterval = setInterval(loadStaffRequests, 5000);
+    const usersInterval = setInterval(() => loadUsers(false), 10000); // Live poll presence every 10s silently without unmounting
+    const safetyTimer = setTimeout(() => setLoading(false), 2500);
     return () => {
       clearInterval(staffInterval);
       clearInterval(usersInterval);
+      clearTimeout(safetyTimer);
     };
   }, [loadUsers, loadStaffRequests, loadTests]);
 
@@ -129,8 +133,11 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
     { label: 'Settings', icon: Settings },
   ];
 
+  if (loading) return <LoadingScreen role="admin" message="Loading administrator console..." />;
+
   return (
     <div className="layout-wrapper">
+      <OfflineBanner />
       {/* Sidebar */}
       <aside className="sidebar">
         {/* Brand */}
@@ -162,7 +169,10 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
               <button
                 key={item.label}
                 className={`nav-link ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveTab(item.label)}
+                onClick={() => {
+                  setActiveTab(item.label);
+                  window.scrollTo({ top: 0, behavior: 'instant' });
+                }}
               >
                 <Icon size={18} strokeWidth={isActive ? 2.5 : 2} />
                 <span>{item.label}</span>
@@ -287,7 +297,7 @@ export default function AdminDashboard({ user, onSignOut, onImpersonate }) {
           </div>
 
           {/* Main Layout Grid */}
-          <div style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: '1fr' }}>
+          <div key={activeTab} className="page-transition-enter" style={{ display: 'grid', gap: '1.5rem', gridTemplateColumns: '1fr' }}>
             
             {activeTab === 'Dashboard' && (
               <div style={{ display: 'grid', gap: '1.5rem' }}>

@@ -17,7 +17,9 @@ import {
   ClipboardCheck,
   FileStack,
   Play,
-  Users
+  Users,
+  UserCheck,
+  ArrowRight
 } from 'lucide-react';
 import CircleRing from '../shared/CircleRing';
 
@@ -60,20 +62,23 @@ export default function Dashboard({
   draftCount = 0,
   activeTestsCount = 0,
   totalStudentsCount = 0,
+  totalCollegeStudentsCount = 0,
+  mappedStudents = [],
   onManageGroups,
   onCreateTest,
-  onViewSubmissions
+  onViewSubmissions,
+  onNavigateToStudents
 }) {
   const displayGroups = Array.isArray(groups) ? groups : [];
   
   // Calculate test average — only count published tests that have at least one graded submission
-  const gradedTests = tests.filter(t => t.status !== 'draft' && Number(t.avg) > 0);
+  const gradedTests = tests.filter(t => t.status !== 'draft' && (t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0));
   const testAverage = gradedTests.length > 0 
     ? Math.round(gradedTests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / gradedTests.length)
     : 0;
 
   // Calculate task average — only count tasks that have at least one reviewed submission
-  const gradedTasks = tasks.filter(t => Number(t.avg) > 0);
+  const gradedTasks = tasks.filter(t => t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0);
   const taskAverage = gradedTasks.length > 0 
     ? Math.round(gradedTasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / gradedTasks.length)
     : 0;
@@ -308,21 +313,27 @@ export default function Dashboard({
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Active Tests</div>
         </div>
         
-        {/* Stat 3: Total Students (Light, Simple & Premium with Circular Icon) */}
-        <div style={{
-          flex: '0.75 1 0',
-          minWidth: 0,
-          background: 'linear-gradient(180deg, #ffffff 15%, #f1fbf5 100%)',
-          borderRadius: '16px',
-          padding: '1.15rem 0.5rem',
-          border: '1px solid #ccf4dc',
-          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: "'Outfit', sans-serif"
-        }}>
+        {/* Stat 3: Mapped Students (Light, Simple & Premium with Circular Icon) */}
+        <div 
+          onClick={() => onNavigateToStudents?.('mapped')}
+          style={{
+            flex: '0.75 1 0',
+            minWidth: 0,
+            background: 'linear-gradient(180deg, #ffffff 15%, #f1fbf5 100%)',
+            borderRadius: '16px',
+            padding: '1.15rem 0.5rem',
+            border: '1px solid #ccf4dc',
+            boxShadow: '0 4px 14px rgba(16, 185, 129, 0.07), 0 1px 3px rgba(0, 0, 0, 0.03)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontFamily: "'Outfit', sans-serif",
+            cursor: 'pointer',
+            transition: 'transform 0.2s, box-shadow 0.2s'
+          }}
+          title="Click to view all mapped students"
+        >
           <div style={{
             width: '42px',
             height: '42px',
@@ -337,8 +348,17 @@ export default function Dashboard({
           }}>
             <Users size={19} />
           </div>
-          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#047857', lineHeight: 1, letterSpacing: '-0.01em' }}>{totalStudents}</div>
-          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Total Students</div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#047857', lineHeight: 1, letterSpacing: '-0.01em' }}>
+            {mappedStudents.length > 0 ? mappedStudents.length : totalStudentsCount}
+          </div>
+          <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>
+            Mapped Students
+          </div>
+          {mappedStudents.length > 0 && (
+            <div style={{ fontSize: '0.72rem', color: '#059669', marginTop: '0.2rem', fontWeight: 700, background: '#ecfdf5', padding: '0.1rem 0.45rem', borderRadius: '10px' }}>
+              Mapped to You
+            </div>
+          )}
         </div>
       </div>
 
@@ -477,7 +497,17 @@ export default function Dashboard({
                 </div>
 
                 {/* Test Items List with Progress Bars & Percentage Badges */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div 
+                  className="custom-scrollbar"
+                  style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '1rem',
+                    maxHeight: '190px',
+                    overflowY: testItems.length > 4 ? 'auto' : 'visible',
+                    paddingRight: testItems.length > 4 ? '6px' : '0'
+                  }}
+                >
                   {testItems.length === 0 ? (
                     <div style={{
                       padding: '1.5rem 1rem',
@@ -495,7 +525,7 @@ export default function Dashboard({
                       </div>
                     </div>
                   ) : (
-                    testItems.slice(0, 4).map((testItem, tIdx) => {
+                    testItems.map((testItem, tIdx) => {
                       const TestIcon = getTestIcon(testItem.title, tIdx);
                       const score = testItem.score;
                       const barColor = getScoreColor(score);
@@ -584,6 +614,180 @@ export default function Dashboard({
             </div>
           );
         })}
+      </div>
+
+      {/* Row 3: Dedicated My Mapped Students Section */}
+      <div style={{
+        marginTop: '2rem',
+        background: '#ffffff',
+        borderRadius: '16px',
+        border: '1px solid #e2e8f0',
+        padding: '1.5rem',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: '#ecfdf5',
+              color: '#059669',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <Users size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                My Mapped Students ({mappedStudents.length})
+              </h3>
+              <p style={{ margin: '0.15rem 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                Students under your direct mentorship and academic guidance
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigateToStudents?.('mapped')}
+            style={{
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              color: '#1d72fe',
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.4rem'
+            }}
+          >
+            <span>Manage Mappings in Students</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+
+        {mappedStudents.length === 0 ? (
+          <div style={{
+            padding: '2.5rem 1rem',
+            textAlign: 'center',
+            color: '#64748b',
+            background: '#f8fafc',
+            borderRadius: '12px',
+            border: '1px dashed #cbd5e1'
+          }}>
+            <Users size={36} color="#cbd5e1" style={{ marginBottom: '0.65rem' }} />
+            <div style={{ fontWeight: 700, color: '#334155', fontSize: '0.95rem' }}>
+              No Students Mapped to You Yet
+            </div>
+            <p style={{ margin: '0.35rem 0 1rem', fontSize: '0.82rem', color: '#64748b' }}>
+              You can map students to your mentorship in the Students page using the "Map to Me" button.
+            </p>
+            <button
+              onClick={() => onNavigateToStudents?.('all')}
+              style={{
+                background: '#1d72fe',
+                color: '#ffffff',
+                border: 'none',
+                padding: '0.5rem 1.25rem',
+                borderRadius: '8px',
+                fontWeight: 700,
+                fontSize: '0.82rem',
+                cursor: 'pointer'
+              }}
+            >
+              Browse & Map Students
+            </button>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+            gap: '1rem'
+          }}>
+            {mappedStudents.map((stud, idx) => (
+              <div
+                key={stud.id || stud.email || idx}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '14px',
+                  padding: '1rem 1.15rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.2s',
+                  position: 'relative'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.85rem' }}>
+                  <div style={{
+                    width: '42px',
+                    height: '42px',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                    color: '#059669',
+                    fontWeight: 800,
+                    fontSize: '0.95rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '1px solid #a7f3d0',
+                    flexShrink: 0
+                  }}>
+                    {stud.name ? stud.name.slice(0, 2).toUpperCase() : 'ST'}
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {stud.name || 'Student'}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {stud.email}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.25rem', display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      {stud.reg_no && (
+                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 600 }}>
+                          {stud.reg_no}
+                        </span>
+                      )}
+                      {stud.department && (
+                        <span style={{ background: '#e2e8f0', color: '#334155', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 600 }}>
+                          {stud.department}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '0.85rem', paddingTop: '0.75rem', borderTop: '1px solid #eef2f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '0.2rem 0.55rem', borderRadius: '12px', border: '1px solid #a7f3d0' }}>
+                    <UserCheck size={12} />
+                    Mapped to You
+                  </span>
+                  <button
+                    onClick={() => onNavigateToStudents?.('mapped')}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#1d72fe',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.2rem'
+                    }}
+                  >
+                    View in Students <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

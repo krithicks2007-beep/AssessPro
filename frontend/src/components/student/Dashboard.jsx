@@ -63,40 +63,80 @@ export default function Dashboard({
   studentDept = '',
   studentYear = '',
   overallScore = 0,
-  testsCompletedCount = 0,
-  pendingCount = 0,
+  testsCompletedCount,
+  tasksCompletedCount,
+  pendingTestsCount,
+  pendingTasksCount,
+  pendingCount,
   assignedStaff = null,
   onNavigateToTests
 }) {
-  // Total tests calculation - Strict zero defaults
+  // Total tests and tasks count
   const totalTestsCount = tests.length;
-  const displayCompletedCount = testsCompletedCount;
-  const displayPendingCount = pendingCount;
+  const totalTasksCount = tasks.length;
+
+  // Completed test submissions
+  const completedTestSubs = studentSubmissions.filter(s => s.status === 'completed');
+  const displayCompletedCount = testsCompletedCount !== undefined ? testsCompletedCount : completedTestSubs.length;
+
+  // Strict upcoming tests count (NEVER mixes tasks into tests)
+  const calculatedUpcomingTests = tests.filter(t => {
+    const hasSubmitted = completedTestSubs.some(s => 
+      (s.test_id && String(s.test_id).trim() === String(t.id).trim()) ||
+      (s.test_title && t.title && s.test_title.trim().toLowerCase() === t.title.trim().toLowerCase())
+    );
+    const isExpired = t.end_time ? new Date(t.end_time).getTime() < Date.now() : false;
+    return !hasSubmitted && !isExpired;
+  }).length;
+  const displayPendingCount = pendingTestsCount !== undefined ? pendingTestsCount : calculatedUpcomingTests;
+
+  // Completed & Pending tasks count
+  const reviewedOrSubmittedTasks = studentTaskSubmissions.filter(s => 
+    Boolean(s.submission_url && s.submission_url.trim() !== '') || s.status === 'submitted' || s.status === 'reviewed' || s.status === 'graded'
+  );
+  const displayCompletedTasksCount = tasksCompletedCount !== undefined ? tasksCompletedCount : reviewedOrSubmittedTasks.length;
+  const calculatedPendingTasks = tasks.filter(t => {
+    const hasSubmitted = reviewedOrSubmittedTasks.some(s => String(s.task_id) === String(t.id));
+    const isOverdue = t.due_date ? new Date(t.due_date).getTime() < Date.now() : false;
+    return !hasSubmitted && !isOverdue;
+  }).length;
+  const displayPendingTasksCount = pendingTasksCount !== undefined ? pendingTasksCount : calculatedPendingTasks;
 
   // Calculate Test Average (Strict Rule)
-  const completedTestSubs = studentSubmissions.filter(s => s.status === 'completed');
   const pastTests = tests.filter(t => t.end_time && new Date(t.end_time).getTime() < Date.now());
   const missedTestsCount = pastTests.filter(t => !completedTestSubs.some(s => String(s.test_id) === String(t.id))).length;
   const gradedTestsCount = completedTestSubs.length + missedTestsCount;
   
-  const totalTestScore = completedTestSubs.reduce((acc, s) => acc + (Number(s.percentage) || 0), 0);
+  const totalTestScore = completedTestSubs.reduce((acc, s) => acc + Number(s.percentage != null ? s.percentage : (s.max_score > 0 ? (s.score / s.max_score) * 100 : 0)), 0);
   const testAverage = gradedTestsCount > 0 ? Math.round(totalTestScore / gradedTestsCount) : 0;
 
   // Calculate Task Average (Strict Rule)
-  const reviewedTaskSubs = studentTaskSubmissions.filter(s => s.status === 'reviewed' && s.score != null);
+  const reviewedTaskSubs = studentTaskSubmissions.filter(s => (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
   const pastTasks = tasks.filter(t => t.due_date && new Date(t.due_date).getTime() < Date.now());
-  const missedTasksCount = pastTasks.filter(t => !reviewedTaskSubs.some(s => String(s.task_id) === String(t.id))).length;
+  const missedTasksCount = pastTasks.filter(t => 
+    !reviewedTaskSubs.some(s => String(s.task_id) === String(t.id)) &&
+    !studentTaskSubmissions.some(s => String(s.task_id) === String(t.id) && (s.submission_url || s.status === 'submitted'))
+  ).length;
   const gradedTasksCount = reviewedTaskSubs.length + missedTasksCount;
 
   const totalTaskScore = reviewedTaskSubs.reduce((acc, sub) => {
-    const task = tasks.find(t => t.id === sub.task_id);
+    const task = tasks.find(t => String(t.id) === String(sub.task_id));
     const max = task?.max_score || 100;
-    return acc + ((sub.score / max) * 100);
+    return acc + (((sub.score || 0) / max) * 100);
   }, 0);
   const taskAverage = gradedTasksCount > 0 ? Math.round(totalTaskScore / gradedTasksCount) : 0;
 
-  // Overall Percentage from layout props (since Layout computes strict overallScore)
+  // Overall Percentage from layout props or fallback calculation
   let overallPercentage = overallScore;
+  if (!overallPercentage) {
+    if (gradedTestsCount > 0 && gradedTasksCount > 0) {
+      overallPercentage = Math.round((testAverage + taskAverage) / 2);
+    } else if (gradedTestsCount > 0) {
+      overallPercentage = testAverage;
+    } else if (gradedTasksCount > 0) {
+      overallPercentage = taskAverage;
+    }
+  }
 
   // Build display groups - show all active academic groups from faculty
   const displayGroups = Array.isArray(groups) ? groups : [];
@@ -333,6 +373,11 @@ export default function Dashboard({
           </div>
           <div style={{ fontSize: '1.85rem', fontWeight: 800, color: '#1e40af', lineHeight: 1, letterSpacing: '-0.02em' }}>{totalTestsCount}</div>
           <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Total Tests</div>
+          {totalTasksCount > 0 && (
+            <div style={{ fontSize: '0.72rem', color: '#2563eb', marginTop: '0.25rem', fontWeight: 600, background: '#eff6ff', padding: '0.15rem 0.5rem', borderRadius: '10px', textAlign: 'center' }}>
+              {totalTasksCount} Total Tasks
+            </div>
+          )}
         </div>
         
         {/* Stat 2: Upcoming Tests (Light, Simple & Premium with Circular Icon) */}
@@ -366,6 +411,11 @@ export default function Dashboard({
           </div>
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#b45309', lineHeight: 1, letterSpacing: '-0.01em' }}>{displayPendingCount}</div>
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Upcoming Tests</div>
+          {displayPendingTasksCount > 0 && (
+            <div style={{ fontSize: '0.72rem', color: '#d97706', marginTop: '0.25rem', fontWeight: 600, background: '#fffbeb', padding: '0.15rem 0.5rem', borderRadius: '10px', textAlign: 'center' }}>
+              {displayPendingTasksCount} Pending Tasks
+            </div>
+          )}
         </div>
         
         {/* Stat 3: Completed Tests (Light, Simple & Premium with Circular Icon) */}
@@ -399,6 +449,11 @@ export default function Dashboard({
           </div>
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.95rem', fontWeight: 800, color: '#047857', lineHeight: 1, letterSpacing: '-0.01em' }}>{displayCompletedCount}</div>
           <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', color: '#64748b', marginTop: '0.35rem', fontWeight: 600, textAlign: 'center', lineHeight: 1.2 }}>Completed Tests</div>
+          {totalTasksCount > 0 && (
+            <div style={{ fontSize: '0.72rem', color: '#059669', marginTop: '0.25rem', fontWeight: 600, background: '#f0fdf4', padding: '0.15rem 0.5rem', borderRadius: '10px', textAlign: 'center' }}>
+              {displayCompletedTasksCount} Completed Tasks
+            </div>
+          )}
         </div>
       </div>
 
@@ -438,21 +493,24 @@ export default function Dashboard({
           
           // Calculate dynamic group average if submissions exist (Strict Rule)
           let groupPct = 0;
-          const groupTestSubs = studentSubmissions.filter(s => groupTests.some(gt => gt.id === s.test_id));
-          const groupTaskSubs = studentTaskSubmissions.filter(s => groupTasks.some(gt => gt.id === s.task_id) && s.status === 'reviewed');
+          const groupTestSubs = studentSubmissions.filter(s => s.status === 'completed' && groupTests.some(gt => String(gt.id) === String(s.test_id)));
+          const groupTaskSubs = studentTaskSubmissions.filter(s => groupTasks.some(gt => String(gt.id) === String(s.task_id)) && (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
           
           const groupPastTests = groupTests.filter(t => t.end_time && new Date(t.end_time).getTime() < Date.now());
-          const groupMissedTests = groupPastTests.filter(t => !groupTestSubs.some(s => s.test_id === t.id));
+          const groupMissedTests = groupPastTests.filter(t => !groupTestSubs.some(s => String(s.test_id) === String(t.id)));
           
           const groupPastTasks = groupTasks.filter(t => t.due_date && new Date(t.due_date).getTime() < Date.now());
-          const groupMissedTasks = groupPastTasks.filter(t => !groupTaskSubs.some(s => s.task_id === t.id));
+          const groupMissedTasks = groupPastTasks.filter(t => 
+            !groupTaskSubs.some(s => String(s.task_id) === String(t.id)) &&
+            !studentTaskSubmissions.some(s => String(s.task_id) === String(t.id) && (s.submission_url || s.status === 'submitted'))
+          );
 
           const totalSubsCount = groupTestSubs.length + groupTaskSubs.length + groupMissedTests.length + groupMissedTasks.length;
           if (totalSubsCount > 0) {
-            const testTotal = groupTestSubs.reduce((a, s) => a + Number(s.percentage || 0), 0);
+            const testTotal = groupTestSubs.reduce((a, s) => a + Number(s.percentage != null ? s.percentage : (s.max_score > 0 ? (s.score / s.max_score) * 100 : 0)), 0);
             const taskTotal = groupTaskSubs.reduce((a, s) => {
-               const max = groupTasks.find(t => t.id === s.task_id)?.max_score || 100;
-               return a + ((s.score / max) * 100);
+               const max = groupTasks.find(t => String(t.id) === String(s.task_id))?.max_score || 100;
+               return a + (((s.score || 0) / max) * 100);
             }, 0);
             groupPct = Math.round((testTotal + taskTotal) / totalSubsCount);
           }
@@ -460,14 +518,25 @@ export default function Dashboard({
           // Build item list for the group
           const testItems = [
              ...groupTests.map(gt => {
-                const sub = studentSubmissions.find(s => s.test_id === gt.id);
-                const score = sub ? Number(sub.percentage || 0) : 0;
-                return { id: gt.id, title: gt.title, score: score, type: 'test' };
+                const sub = studentSubmissions.find(s => String(s.test_id) === String(gt.id) && s.status === 'completed');
+                const isPast = gt.end_time && new Date(gt.end_time).getTime() < Date.now();
+                const score = sub ? Number(sub.percentage != null ? sub.percentage : (sub.max_score > 0 ? (sub.score / sub.max_score) * 100 : 0)) : 0;
+                const isMissed = isPast && !sub;
+                return { id: gt.id, title: gt.title, score: Math.round(score), type: 'test', isMissed };
              }),
              ...groupTasks.map(gt => {
-                const sub = studentTaskSubmissions.find(s => s.task_id === gt.id && s.status === 'reviewed');
-                const score = sub ? Math.round((sub.score / (gt.max_score || 100)) * 100) : 0;
-                return { id: gt.id, title: gt.title, score: score, type: 'task' };
+                const sub = studentTaskSubmissions.find(s => String(s.task_id) === String(gt.id));
+                const isPast = gt.due_date && new Date(gt.due_date).getTime() < Date.now();
+                let score = 0;
+                let isMissed = false;
+                if (sub && (sub.status === 'reviewed' || sub.status === 'graded') && sub.score != null) {
+                  score = Math.round(((sub.score || 0) / (gt.max_score || 100)) * 100);
+                  if (sub.score === 0 && !sub.submission_url) isMissed = true;
+                } else if (isPast && (!sub || !sub.submission_url)) {
+                  score = 0;
+                  isMissed = true;
+                }
+                return { id: gt.id, title: gt.title, score: score, type: 'task', isMissed };
              })
           ];
 
@@ -541,7 +610,17 @@ export default function Dashboard({
                 </div>
 
                 {/* Test Items List with Progress Bars & Percentage Badges */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div 
+                  className="custom-scrollbar"
+                  style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    gap: '1rem',
+                    maxHeight: '190px',
+                    overflowY: testItems.length > 4 ? 'auto' : 'visible',
+                    paddingRight: testItems.length > 4 ? '6px' : '0'
+                  }}
+                >
                   {testItems.length === 0 ? (
                     <div style={{
                       padding: '1.5rem 1rem',
@@ -559,7 +638,7 @@ export default function Dashboard({
                       </div>
                     </div>
                   ) : (
-                    testItems.slice(0, 4).map((testItem, tIdx) => {
+                    testItems.map((testItem, tIdx) => {
                       const TestIcon = getTestIcon(testItem.title, tIdx);
                       const score = testItem.score;
                       const barColor = getScoreColor(score);
@@ -587,10 +666,10 @@ export default function Dashboard({
                             <span style={{
                               fontSize: '0.82rem',
                               fontWeight: 700,
-                              color: '#1e293b',
+                              color: testItem.isMissed ? '#dc2626' : '#1e293b',
                               flexShrink: 0
                             }}>
-                              {score}%
+                              {testItem.isMissed ? '0% (Missed)' : `${score}%`}
                             </span>
                           </div>
 

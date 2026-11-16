@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Search, AlertCircle, ArrowLeft, X, Save, Trash2 } from "lucide-react";
 import api from "../../api";
 import StudentDashboard from "../student/Dashboard";
@@ -22,44 +23,112 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
   const [isSaving, setIsSaving] = useState(false);
   const [allGroups, setAllGroups] = useState([]);
   const [allTests, setAllTests] = useState([]);
+  const [allTasks, setAllTasks] = useState([]);
   const [studentSubmissions, setStudentSubmissions] = useState([]);
+  const [studentTaskSubmissions, setStudentTaskSubmissions] = useState([]);
   const [staffList, setStaffList] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setStaffList(allUsers.filter(u => (u.role || u.UserType || "").toLowerCase() === "staff"));
+    setStaffList((allUsers || []).filter(u => (u.role || u.UserType || "").toLowerCase() === "staff"));
+  }, [allUsers]);
+
+  useEffect(() => {
+    if (viewingStudent && !showDashboard) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [viewingStudent, showDashboard]);
+
+  useEffect(() => {
     const loadData = async () => {
-      const data = await api.getAllStudents();
-      const sList = Array.isArray(data) ? data : [];
-      setStudentsList(sList);
-      const tests = await api.getTests();
-      const groups = await api.getGroups();
-      setAllTests(tests || []);
-      setAllGroups(groups || []);
+      setLoading(true);
       try {
-        const { getSupabaseClient } = await import("../../supabaseClient");
-        const supabase = getSupabaseClient();
-        if (supabase) {
-          const { data: subs } = await supabase.from("test_submissions").select("student_email, score, max_score");
-          if (subs) {
-            const stats = {};
-            subs.forEach(sub => {
-              const em = (sub.student_email || "").toLowerCase();
-              if (!stats[em]) stats[em] = { score: 0, max: 0, count: 0 };
-              stats[em].score += Number(sub.score || 0);
-              stats[em].max += Number(sub.max_score || 0);
-              stats[em].count++;
+        const data = await api.getAllStudents();
+        const sList = Array.isArray(data) ? data : [];
+        setStudentsList(sList);
+        const tests = await api.getTests();
+        const groups = await api.getGroups({ all: true });
+        setAllTests(tests || []);
+        setAllGroups(groups || []);
+        try {
+          const { getSupabaseClient } = await import("../../supabaseClient");
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            const [{ data: subs }, { data: taskSubs }, { data: dbTasks }] = await Promise.all([
+              supabase.from("test_submissions").select("student_email, score, max_score, percentage").eq("status", "completed"),
+              supabase.from("task_submissions").select("student_id, task_id, score, status").in("status", ["reviewed", "graded"]),
+              supabase.from("tasks").select("*, groups(*)").eq("status", "published")
+            ]);
+            setAllTasks(dbTasks || []);
+
+            const taskMap = new Map();
+            (dbTasks || []).forEach(tk => taskMap.set(String(tk.id), tk));
+
+            const studentIdMap = new Map();
+            sList.forEach(st => {
+              if (st.id && st.email) studentIdMap.set(st.id, st.email.toLowerCase());
             });
+
+            const stats = {};
+            // Tally completed test submissions
+            (subs || []).forEach(sub => {
+              const em = (sub.student_email || "").toLowerCase().trim();
+              if (!em) return;
+              if (!stats[em]) stats[em] = { testPctSum: 0, testCount: 0, taskPctSum: 0, taskCount: 0 };
+              const pct = sub.percentage != null 
+                ? Number(sub.percentage) 
+                : (Number(sub.max_score) > 0 ? (Number(sub.score) / Number(sub.max_score)) * 100 : 0);
+              stats[em].testPctSum += pct;
+              stats[em].testCount++;
+            });
+
+            // Tally reviewed task submissions
+            (taskSubs || []).forEach(tsub => {
+              const em = studentIdMap.get(tsub.student_id);
+              if (!em) return;
+              if (!stats[em]) stats[em] = { testPctSum: 0, testCount: 0, taskPctSum: 0, taskCount: 0 };
+              const tk = taskMap.get(String(tsub.task_id));
+              const max = Number(tk?.max_score) || 100;
+              const pct = max > 0 ? (Number(tsub.score || 0) / max) * 100 : 0;
+              stats[em].taskPctSum += pct;
+              stats[em].taskCount++;
+            });
+
             const finalStats = {};
             for (const [em, s] of Object.entries(stats)) {
-              finalStats[em] = { avg: s.max > 0 ? Math.round((s.score / s.max) * 100) : 0, count: s.count };
+              const testAvg = s.testCount > 0 ? s.testPctSum / s.testCount : null;
+              const taskAvg = s.taskCount > 0 ? s.taskPctSum / s.taskCount : null;
+              let combinedAvg = 0;
+              if (testAvg !== null && taskAvg !== null) {
+                combinedAvg = Math.round((testAvg + taskAvg) / 2);
+              } else if (testAvg !== null) {
+                combinedAvg = Math.round(testAvg);
+              } else if (taskAvg !== null) {
+                combinedAvg = Math.round(taskAvg);
+              }
+              finalStats[em] = { 
+                avg: combinedAvg, 
+                count: s.testCount + s.taskCount,
+                testCount: s.testCount,
+                taskCount: s.taskCount
+              };
             }
             setStudentStats(finalStats);
           }
+        } catch (e) {
+          console.warn("StudentDirectory stats loading error:", e);
         }
-      } catch (e) {}
+      } finally {
+        setLoading(false);
+      }
     };
     loadData();
-  }, [allUsers]);
+  }, []);
 
   const filteredStudents = studentsList.filter(s => {
     const q = searchQuery.toLowerCase();
@@ -79,9 +148,18 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
     try {
       const { getSupabaseClient } = await import("../../supabaseClient");
       const supabase = getSupabaseClient();
-      const { data } = await supabase.from("test_submissions").select("*").eq("student_email", (stud.email || "").toLowerCase());
-      setStudentSubmissions(data || []);
-    } catch (e) { setStudentSubmissions([]); }
+      if (supabase) {
+        const [{ data: sData }, { data: subData }] = await Promise.all([
+          supabase.from("test_submissions").select("*").eq("student_email", (stud.email || "").toLowerCase()),
+          supabase.from("task_submissions").select("*").eq("student_id", stud.id)
+        ]);
+        setStudentSubmissions(sData || []);
+        setStudentTaskSubmissions(subData || []);
+      }
+    } catch (e) { 
+      setStudentSubmissions([]); 
+      setStudentTaskSubmissions([]);
+    }
   };
 
   const handleSaveStudent = async () => {
@@ -145,17 +223,48 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
 
   if (viewingStudent && showDashboard) {
     const stat = studentStats[(viewingStudent.email || "").toLowerCase()] || { avg: 0, count: 0 };
+    const cleanEmail = (viewingStudent.email || "").toLowerCase().trim();
+
     const studentTests = allTests.filter(t => {
+      if (t.status === 'draft') return false;
       if (!t.assigned_students || t.assigned_students.length === 0) return true;
-      return t.assigned_students.map(e => (typeof e === "string" ? e : e?.email || "").toLowerCase()).includes((viewingStudent.email || "").toLowerCase());
+      return t.assigned_students.map(e => (typeof e === "string" ? e : e?.email || "").toLowerCase()).includes(cleanEmail);
     });
+
+    const studentTasks = allTasks.filter(t => {
+      if (t.status === 'draft') return false;
+      if (!t.assigned_students || t.assigned_students.length === 0) return true;
+      return t.assigned_students.map(e => (typeof e === "string" ? e : e?.email || "").toLowerCase()).includes(cleanEmail);
+    });
+
+    const assignedStaffId = viewingStudent.assigned_staff_id || "";
+    const testGroupIds = new Set(studentTests.map(t => t.group_id).filter(Boolean));
+    const taskGroupIds = new Set(studentTasks.map(t => t.group_id).filter(Boolean));
+    const visibleGroups = allGroups.filter(g => 
+      (assignedStaffId && String(g.created_by || g.staff_id) === String(assignedStaffId)) || 
+      testGroupIds.has(g.id) ||
+      taskGroupIds.has(g.id)
+    );
+
     return (
-      <div className="dashboard-content">
-        <button onClick={() => setShowDashboard(false)} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem", background: "none", border: "none", color: "#1d72fe", cursor: "pointer", fontWeight: 600 }}>
+      <div className="dashboard-content page-transition-enter">
+        <button onClick={() => { setShowDashboard(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem", background: "none", border: "none", color: "#1d72fe", cursor: "pointer", fontWeight: 600 }}>
           <ArrowLeft size={18} /> Back to Student Info
         </button>
         <div style={{ pointerEvents: "none", opacity: 0.97 }}>
-          <StudentDashboard groups={allGroups} tests={studentTests} studentSubmissions={studentSubmissions} studentName={viewingStudent.name} overallScore={stat.avg} testsCompletedCount={stat.count} />
+          <StudentDashboard 
+            groups={visibleGroups} 
+            tests={studentTests} 
+            tasks={studentTasks}
+            studentSubmissions={studentSubmissions} 
+            studentTaskSubmissions={studentTaskSubmissions}
+            studentName={viewingStudent.name} 
+            studentDept={viewingStudent.department}
+            studentYear={viewingStudent.year}
+            overallScore={stat.avg} 
+            testsCompletedCount={stat.count} 
+            assignedStaff={viewingStudent}
+          />
         </div>
       </div>
     );
@@ -186,7 +295,15 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
           <table className="custom-table">
             <thead><tr><th>Name</th><th>Reg No</th><th>Staff Assigned</th><th>Average</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
             <tbody>
-              {filteredStudents.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "2.5rem", color: "#64748b" }}>
+                    <div style={{ display: "inline-block", width: 24, height: 24, borderRadius: "50%", border: "3px solid #e2e8f0", borderTopColor: "#1d72fe", animation: "spin 0.7s linear infinite", marginBottom: 8 }} />
+                    <div style={{ fontSize: "0.88rem", fontWeight: 600 }}>Loading student directory...</div>
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </td>
+                </tr>
+              ) : filteredStudents.length === 0 ? (
                 <tr><td colSpan={5} style={{ textAlign: "center", padding: "2rem", color: "#94a3b8" }}>No students found.</td></tr>
               ) : filteredStudents.map((u) => {
                 const stat = studentStats[(u.email || "").toLowerCase()] || { avg: 0 };
@@ -206,9 +323,15 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
         </div>
       </div>
 
-      {viewingStudent && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(15, 23, 42, 0.6)", backdropFilter: "blur(8px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-          <div style={{ background: "#ffffff", borderRadius: "16px", width: "100%", maxWidth: "650px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column" }}>
+      {viewingStudent && !showDashboard && createPortal(
+        <div 
+          style={{ position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.65)", backdropFilter: "blur(8px)", zIndex: 999999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1.5rem" }}
+          onClick={() => setViewingStudent(null)}
+        >
+          <div 
+            style={{ background: "#ffffff", borderRadius: "16px", width: "100%", maxWidth: "650px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", margin: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1.5rem", borderBottom: "1px solid #e2e8f0" }}>
               <h2 style={{ margin: 0, fontSize: "1.4rem", color: "#0f172a" }}>Manage Student Info</h2>
               <button onClick={() => setViewingStudent(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }}><X size={24} /></button>
@@ -244,14 +367,15 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
               </button>
               <div style={{ display: "flex", gap: "1rem" }}>
                 <button onClick={() => { if(onImpersonate) onImpersonate(viewingStudent, 'student'); }} style={{ background: "#f59e0b", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>View As</button>
-                <button onClick={() => setShowDashboard(true)} style={{ background: "transparent", color: "#1d72fe", border: "1px solid #1d72fe", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>Dashboard</button>
+                <button onClick={() => { setShowDashboard(true); window.scrollTo({ top: 0, behavior: "smooth" }); }} style={{ background: "transparent", color: "#1d72fe", border: "1px solid #1d72fe", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>Dashboard</button>
                 <button onClick={handleSaveStudent} disabled={isSaving} style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "#1d72fe", color: "#fff", border: "none", padding: "0.65rem 1.25rem", borderRadius: "8px", fontWeight: 700, cursor: "pointer", opacity: isSaving ? 0.7 : 1 }}>
                   <Save size={16} />{isSaving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -91,7 +91,7 @@ export default function Tests({
             (s.test_id && String(s.test_id).trim() === String(test.id).trim()) ||
             (s.test_title && test.title && s.test_title.trim().toLowerCase() === test.title.trim().toLowerCase())
           );
-          const isCompleted = Boolean(submission);
+          const isCompleted = Boolean(submission && submission.status === 'completed');
 
           const hasStartTime = Boolean(test.start_time);
           const hasEndTime = Boolean(test.end_time);
@@ -131,10 +131,11 @@ export default function Tests({
                     fontWeight: 700,
                     padding: '0.2rem 0.6rem',
                     borderRadius: '20px',
-                    background: isCompleted ? '#dcfce7' : isOngoing ? '#dbeafe' : isUpcoming ? '#fef3c7' : '#f1f5f9',
-                    color: isCompleted ? '#15803d' : isOngoing ? '#1d72fe' : isUpcoming ? '#d97706' : '#64748b'
+                    background: isCompleted ? '#dcfce7' : isOngoing ? '#dbeafe' : isUpcoming ? '#fef3c7' : isExpired ? '#fef2f2' : '#f1f5f9',
+                    color: isCompleted ? '#15803d' : isOngoing ? '#1d72fe' : isUpcoming ? '#d97706' : isExpired ? '#dc2626' : '#64748b',
+                    border: isExpired && !isCompleted ? '1px solid #fecaca' : 'none'
                   }}>
-                    {isCompleted ? 'Completed' : isUpcoming ? 'Scheduled' : isExpired ? 'Closed' : 'Active Now'}
+                    {isCompleted ? 'Completed' : isUpcoming ? 'Scheduled' : isExpired ? 'Time Exceeded (0 Marks)' : 'Active Now'}
                   </span>
                   <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
                     {test.duration_minutes || 60} mins
@@ -192,7 +193,7 @@ export default function Tests({
                     <span>Submitted</span>
                   </div>
                   <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#15803d' }}>
-                    {submission.score} / {submission.max_score} ({submission.percentage}%)
+                    {submission.score} / {submission.max_score} ({submission.percentage != null ? Math.round(Number(submission.percentage)) : (submission.max_score > 0 ? Math.round((Number(submission.score) / Number(submission.max_score)) * 100) : 0)}%)
                   </span>
                 </div>
               ) : isUpcoming ? (
@@ -218,27 +219,23 @@ export default function Tests({
                   <span>Opens in {formatCountdown(secondsUntilStart)}</span>
                 </button>
               ) : isExpired ? (
-                <button
-                  disabled
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
-                    background: '#f8fafc',
-                    color: '#94a3b8',
-                    fontSize: '0.84rem',
-                    fontWeight: 700,
-                    cursor: 'not-allowed',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem'
-                  }}
-                >
-                  <Clock size={15} />
-                  <span>Assessment Closed</span>
-                </button>
+                <div style={{
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: '10px',
+                  padding: '0.65rem 0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#dc2626', fontSize: '0.82rem', fontWeight: 700 }}>
+                    <AlertCircle size={15} />
+                    <span>Time Exceeded &bull; Scored 0</span>
+                  </div>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#b91c1c' }}>
+                    0 / {test.max_score || 100} (0%)
+                  </span>
+                </div>
               ) : (test.allow_latecomers === false && currentTime > startTimeMs) ? (
                 <button
                   disabled

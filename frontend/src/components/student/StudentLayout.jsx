@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Home,
   FileText,
@@ -15,6 +15,7 @@ import api from '../../api';
 import { getSupabaseClient } from '../../supabaseClient';
 import { parseBitEmail, isMasterAccount } from '../../utils/studentParser';
 import TestTakingModal from './TestTakingModal';
+import StudentNotificationsModal from './StudentNotificationsModal';
 
 // Tab Components
 import Dashboard from './Dashboard';
@@ -41,6 +42,24 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [actionSuccess, setActionSuccess] = useState('');
   const [actionError, setActionError] = useState('');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notifRef = useRef(null);
+
+  const [seenIds, setSeenIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`assesspro_seen_notifs_${user?.id || user?.email || 'student'}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`assesspro_seen_notifs_${user?.id || user?.email || 'student'}`);
+      if (raw) setSeenIds(JSON.parse(raw));
+    } catch (e) {}
+  }, [user?.id, user?.email]);
 
   const notifySuccess = useCallback((msg) => {
     setActionSuccess(msg);
@@ -119,14 +138,27 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         subData = subRes.data || [];
       }
 
+      // Determine which tasks are effective for this student
+      const cleanEmail = (email || '').toLowerCase().trim();
+      const effectiveTasksFiltered = tData.filter(t => {
+        if (t.status === 'draft') return false;
+        if (Array.isArray(t.assigned_students) && t.assigned_students.length > 0) {
+          return t.assigned_students.some(e => {
+            const val = typeof e === 'string' ? e : e?.email || '';
+            return val.toLowerCase().trim() === cleanEmail;
+          });
+        }
+        return true;
+      });
+
       // Find all group IDs that are associated with the effective tests or tasks
       const testGroupIds = new Set(effectiveTestsFiltered.map(t => t.group_id).filter(Boolean));
-      const taskGroupIds = new Set(tData.map(t => t.group_id).filter(Boolean));
+      const taskGroupIds = new Set(effectiveTasksFiltered.map(t => t.group_id).filter(Boolean));
 
       // Filter groups: keep if they belong to the student's assigned staff OR if the student has a test/task in them
       const safeGroups = Array.isArray(allGroups) ? allGroups : [];
       const visibleGroups = safeGroups.filter(g => 
-        (assignedStaffId && String(g.staff_id) === String(assignedStaffId)) || 
+        (assignedStaffId && String(g.created_by || g.staff_id) === String(assignedStaffId)) || 
         testGroupIds.has(g.id) ||
         taskGroupIds.has(g.id)
       );
@@ -135,7 +167,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
       setTests(allTestsData || []);
       setStudentSubmissions(Array.isArray(sData) ? sData : []);
       
-      setTasks(tData);
+      setTasks(effectiveTasksFiltered);
       setStudentTaskSubmissions(subData);
       
 
@@ -155,6 +187,8 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   // Load live groups, tests, and student submissions strictly for this user
   useEffect(() => {
     loadData();
+    const safetyTimer = setTimeout(() => setLoading(false), 2500);
+    return () => clearTimeout(safetyTimer);
   }, [loadData]);
 
   // Auto-resume active exam if the user refreshed the page during a test
@@ -217,18 +251,21 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const missedTestsCount = pastTests.filter(t => !completedTestSubs.some(s => String(s.test_id) === String(t.id))).length;
   const gradedTestsCount = completedTestSubs.length + missedTestsCount;
   
-  const totalTestScore = completedTestSubs.reduce((acc, s) => acc + Number(s.percentage || 0), 0);
+  const totalTestScore = completedTestSubs.reduce((acc, s) => acc + Number(s.percentage != null ? s.percentage : (s.max_score > 0 ? (s.score / s.max_score) * 100 : 0)), 0);
   const strictTestAverage = gradedTestsCount > 0 ? Math.round(totalTestScore / gradedTestsCount) : 0;
 
   // Tasks passed deadline without submission
   const pastTasks = effectiveTasks.filter(t => t.due_date && new Date(t.due_date).getTime() < Date.now());
-  const completedTaskSubs = (studentTaskSubmissions || []).filter(s => s.status === 'reviewed');
-  const missedTasksCount = pastTasks.filter(t => !completedTaskSubs.some(s => String(s.task_id) === String(t.id))).length;
+  const completedTaskSubs = (studentTaskSubmissions || []).filter(s => (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
+  const missedTasksCount = pastTasks.filter(t => 
+    !completedTaskSubs.some(s => String(s.task_id) === String(t.id)) &&
+    !(studentTaskSubmissions || []).some(s => String(s.task_id) === String(t.id) && (s.submission_url || s.status === 'submitted'))
+  ).length;
   
   const gradedTasksCount = completedTaskSubs.length + missedTasksCount;
   const totalTaskScore = completedTaskSubs.reduce((acc, s) => {
-    const max = effectiveTasks.find(t => t.id === s.task_id)?.max_score || 100;
-    return acc + ((s.score / max) * 100);
+    const max = effectiveTasks.find(t => String(t.id) === String(s.task_id))?.max_score || 100;
+    return acc + (((s.score || 0) / max) * 100);
   }, 0);
   
   const strictTaskAverage = gradedTasksCount > 0 ? Math.round(totalTaskScore / gradedTasksCount) : 0;
@@ -246,14 +283,87 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
   const overallScore = realOverallScore;
   const testsCompletedCount = completedTestSubs.length;
 
-  // Notification bell: only count tests that the student has NOT attended yet
-  const pendingTests = effectiveTests.filter(t => 
-    !safeStudentSubmissions.some(s => 
+  // Remaining active/scheduled tests that the student has NOT completed and NOT expired
+  const remainingTests = effectiveTests.filter(t => {
+    const hasSubmitted = safeStudentSubmissions.some(s => 
       (s.test_id && String(s.test_id).trim() === String(t.id).trim()) ||
       (s.test_title && t.title && s.test_title.trim().toLowerCase() === t.title.trim().toLowerCase())
-    )
-  );
-  const pendingCount = pendingTests.length;
+    );
+    const isExpired = t.end_time ? new Date(t.end_time).getTime() < currentTime : false;
+    return !hasSubmitted && !isExpired;
+  });
+
+  // Remaining active tasks that the student has NOT submitted link for and NOT overdue
+  const remainingTasks = effectiveTasks.filter(t => {
+    const hasSubmitted = (studentTaskSubmissions || []).some(s => 
+      String(s.task_id) === String(t.id) &&
+      (Boolean(s.submission_url && s.submission_url.trim() !== '') || s.status === 'submitted' || s.status === 'reviewed' || s.status === 'graded')
+    );
+    const isOverdue = t.due_date ? new Date(t.due_date).getTime() < currentTime : false;
+    return !hasSubmitted && !isOverdue;
+  });
+
+  // Completed tasks count
+  const tasksCompletedCount = (studentTaskSubmissions || []).filter(s => 
+    Boolean(s.submission_url && s.submission_url.trim() !== '') || s.status === 'submitted' || s.status === 'reviewed' || s.status === 'graded'
+  ).length;
+
+  // New items that the student hasn't seen yet
+  const newTests = remainingTests.filter(t => !seenIds.includes(`test_${t.id}`));
+  const newTasks = remainingTasks.filter(t => !seenIds.includes(`task_${t.id}`));
+  const unreadCount = newTests.length + newTasks.length;
+  // Separate tests and tasks pending counts (do NOT mix tasks into upcoming tests)
+  const pendingTestsCount = remainingTests.length;
+  const pendingTasksCount = remainingTasks.length;
+
+  const markAllAsSeen = useCallback(() => {
+    const currentIds = [
+      ...remainingTests.map(t => `test_${t.id}`),
+      ...remainingTasks.map(t => `task_${t.id}`)
+    ];
+    const updatedSeen = Array.from(new Set([...seenIds, ...currentIds]));
+    setSeenIds(updatedSeen);
+    try {
+      localStorage.setItem(`assesspro_seen_notifs_${user?.id || email || 'student'}`, JSON.stringify(updatedSeen));
+    } catch (e) {
+      console.error('Error saving seen notifications:', e);
+    }
+  }, [remainingTests, remainingTasks, seenIds, user?.id, email]);
+
+  const handleCloseNotifications = useCallback(() => {
+    setShowNotifications(false);
+    markAllAsSeen();
+  }, [markAllAsSeen]);
+
+  const handleToggleNotifications = useCallback(() => {
+    if (showNotifications) {
+      handleCloseNotifications();
+    } else {
+      setShowNotifications(true);
+    }
+  }, [showNotifications, handleCloseNotifications]);
+
+  const handleSelectTest = (test) => {
+    handleCloseNotifications();
+    setActiveTab('My Tests');
+  };
+
+  const handleSelectTask = (task) => {
+    handleCloseNotifications();
+    setActiveTab('Tasks');
+  };
+
+  // Close notifications on outside click
+  useEffect(() => {
+    if (!showNotifications) return;
+    const handleClickOutside = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        handleCloseNotifications();
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifications, handleCloseNotifications]);
 
   // Sidebar navigation items matching screenshot
   const navItems = [
@@ -322,6 +432,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             testsCompletedCount={testsCompletedCount}
             onRequestEditProfile={onRequestEditProfile}
             institution={studentProfile?.institution}
+            assignedStaff={assignedStaff || (studentProfile?.assigned_staff_name ? { assigned_staff_name: studentProfile.assigned_staff_name } : null)}
           />
         );
       case 'Dashboard':
@@ -338,8 +449,11 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             studentYear={studentYear}
             overallScore={overallScore}
             testsCompletedCount={testsCompletedCount}
-            pendingCount={pendingCount}
-            assignedStaff={assignedStaff}
+            tasksCompletedCount={tasksCompletedCount}
+            pendingTestsCount={pendingTestsCount}
+            pendingTasksCount={pendingTasksCount}
+            pendingCount={pendingTestsCount}
+            assignedStaff={assignedStaff || (studentProfile?.assigned_staff_name ? { assigned_staff_name: studentProfile.assigned_staff_name } : null)}
             onNavigateToTests={() => setActiveTab('My Tests')}
           />
         );
@@ -402,28 +516,62 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
           </div>
 
           <div className="header-right">
-            <div className="notification-btn" title={pendingCount > 0 ? `${pendingCount} Pending Assessment${pendingCount > 1 ? 's' : ''}` : 'No Pending Assessments'} style={{ position: 'relative' }}>
-              <Bell size={18} />
-              {pendingCount > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
-                  background: '#ef4444',
-                  color: '#fff',
-                  borderRadius: '50%',
-                  width: '16px',
-                  height: '16px',
-                  fontSize: '0.65rem',
-                  fontWeight: 800,
+            {/* Notification Bell with Partition Popover */}
+            <div ref={notifRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={handleToggleNotifications}
+                className="notification-btn"
+                title={unreadCount > 0 ? `${unreadCount} new item${unreadCount > 1 ? 's' : ''}` : 'Notifications'}
+                style={{
+                  position: 'relative',
+                  background: showNotifications ? '#eff6ff' : '#ffffff',
+                  border: showNotifications ? '1.5px solid #1d72fe' : '1px solid #cbd5e1',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  border: '2px solid #ffffff'
-                }}>
-                  {pendingCount}
-                </span>
-              )}
+                  borderRadius: '50%',
+                  width: '38px',
+                  height: '38px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Bell size={18} color={showNotifications ? '#1d72fe' : '#475569'} />
+                {unreadCount > 0 && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    borderRadius: '50%',
+                    width: '18px',
+                    height: '18px',
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: '2px solid #ffffff',
+                    boxShadow: '0 2px 5px rgba(239, 68, 68, 0.4)'
+                  }}>
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              <StudentNotificationsModal
+                isOpen={showNotifications}
+                onClose={handleCloseNotifications}
+                remainingTests={remainingTests}
+                remainingTasks={remainingTasks}
+                seenIds={seenIds}
+                currentTime={currentTime}
+                onSelectTest={handleSelectTest}
+                onSelectTask={handleSelectTask}
+              />
             </div>
 
             {/* Department & Year Info Badge */}
@@ -469,7 +617,11 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
               <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>Loading your dashboard...</div>
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
-          ) : renderActiveTab()}
+          ) : (
+            <div key={activeTab} className="page-transition-enter">
+              {renderActiveTab()}
+            </div>
+          )}
         </div>
         
         {/* Global Notifications */}

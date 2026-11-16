@@ -98,6 +98,9 @@ export default function Results({
                   String(t.id).trim() === String(sub.test_id).trim() || 
                   (t.title && sub.test_title && t.title.toLowerCase() === sub.test_title.toLowerCase())
                 );
+                const pct = sub.percentage != null 
+                  ? Math.round(Number(sub.percentage)) 
+                  : (sub.max_score > 0 ? Math.round((Number(sub.score) / Number(sub.max_score)) * 100) : 0);
                 return (
                   <tr key={sub.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
                     <td style={{ padding: '1rem 1.25rem', fontWeight: 700, color: '#0f172a' }}>
@@ -109,9 +112,9 @@ export default function Results({
                     <td style={{ padding: '1rem 1rem' }}>
                       <span style={{
                         fontWeight: 800,
-                        color: sub.percentage >= 75 ? '#15803d' : sub.percentage >= 50 ? '#d97706' : '#dc2626'
+                        color: pct >= 75 ? '#15803d' : pct >= 50 ? '#d97706' : '#dc2626'
                       }}>
-                        {sub.percentage}%
+                        {pct}%
                       </span>
                     </td>
                     <td style={{ padding: '1rem 1rem' }}>
@@ -128,7 +131,7 @@ export default function Results({
                       )}
                     </td>
                     <td style={{ padding: '1rem 1rem', color: '#64748b' }}>
-                      {new Date(sub.submitted_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                      {sub.submitted_at ? new Date(sub.submitted_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Recently'}
                     </td>
                     <td style={{ padding: '1rem 1.25rem' }}>
                       <span style={{

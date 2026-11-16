@@ -38,21 +38,24 @@ router.get('/api/tests', verifyAuth, async (req, res) => {
 
         const { data: subsData } = await supabase
           .from('test_submissions')
-          .select('test_id, score, max_score')
-          .in('test_id', testIds);
+          .select('test_id, score, max_score, percentage')
+          .in('test_id', testIds)
+          .eq('status', 'completed');
+        let countMap = {};
         if (subsData) {
           const aggs = {};
           subsData.forEach(s => {
              if (!aggs[s.test_id]) aggs[s.test_id] = { totalPct: 0, count: 0 };
-             const pct = s.max_score > 0 ? (s.score / s.max_score) * 100 : 0;
+             const pct = s.percentage != null 
+               ? Number(s.percentage) 
+               : (s.max_score > 0 ? (Number(s.score) / Number(s.max_score)) * 100 : 0);
              aggs[s.test_id].totalPct += pct;
              aggs[s.test_id].count++;
           });
           for (const tId in aggs) {
-             const tObj = data.find(t => t.id === tId);
              const denominator = aggs[tId].count;
-
              avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
+             countMap[tId] = denominator;
           }
         }
       }
@@ -63,7 +66,9 @@ router.get('/api/tests', verifyAuth, async (req, res) => {
     const canSeeAnswers = ['staff', 'admin'].includes(req.userRole);
     let list = data.map(t => ({
       ...t,
-      avg: avgMap[t.id] || 0,
+      avg: avgMap[t.id] !== undefined ? avgMap[t.id] : 0,
+      submissionsCount: countMap[t.id] || 0,
+      hasSubmissions: avgMap[t.id] !== undefined,
       assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
       questions: Array.isArray(t.questions) ? t.questions.map(q => canSeeAnswers ? q : (({ correct_index, ...safeQuestion }) => safeQuestion)(q)) : [],
       total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
@@ -201,20 +206,27 @@ router.put('/api/tests/:id', verifyAuth, requireRoles('staff', 'admin'), async (
 
     const payload = {};
     if (u.title           !== undefined) payload.title            = u.title;
-    if (u.groupId         !== undefined) payload.group_id         = u.groupId;
-    if (u.durationMinutes !== undefined) payload.duration_minutes = u.durationMinutes;
-    if (u.testType        !== undefined) payload.test_type        = u.testType;
+    if (u.groupId !== undefined || u.group_id !== undefined) payload.group_id = u.groupId !== undefined ? u.groupId : u.group_id;
+    if (u.durationMinutes !== undefined || u.duration_minutes !== undefined) payload.duration_minutes = u.durationMinutes !== undefined ? u.durationMinutes : u.duration_minutes;
+    if (u.testType !== undefined || u.test_type !== undefined) payload.test_type = u.testType !== undefined ? u.testType : u.test_type;
     if (u.status          !== undefined) payload.status           = u.status;
-    if (u.maxScore        !== undefined) payload.max_score        = u.maxScore;
-    if (u.startTime       !== undefined) payload.start_time       = u.startTime;
-    if (u.startTime       !== undefined) payload.scheduled_date   = u.startTime;
-    if (u.endTime         !== undefined) payload.end_time         = u.endTime;
-    if (u.allowLatecomers !== undefined) payload.allow_latecomers = u.allowLatecomers;
-    if (u.lateLimitMinutes!== undefined) payload.late_limit_minutes = u.lateLimitMinutes;
+    if (u.maxScore !== undefined || u.max_score !== undefined) payload.max_score = u.maxScore !== undefined ? u.maxScore : u.max_score;
+    const stTime = u.startTime !== undefined ? u.startTime : u.start_time;
+    if (stTime !== undefined) {
+      payload.start_time = stTime;
+      payload.scheduled_date = stTime;
+    }
+    const enTime = u.endTime !== undefined ? u.endTime : u.end_time;
+    if (enTime !== undefined) payload.end_time = enTime;
+    if (u.allowLatecomers !== undefined || u.allow_latecomers !== undefined) payload.allow_latecomers = u.allowLatecomers !== undefined ? u.allowLatecomers : u.allow_latecomers;
+    if (u.lateLimitMinutes !== undefined || u.late_limit_minutes !== undefined) payload.late_limit_minutes = u.lateLimitMinutes !== undefined ? u.lateLimitMinutes : u.late_limit_minutes;
     if (u.auto_launch     !== undefined) payload.auto_launch      = u.auto_launch;
-    if (u.assignedStudents!== undefined) payload.assigned_students= u.assignedStudents;
-    if (u.questions       !== undefined) payload.questions        = u.questions;
-    if (u.questions       !== undefined) payload.total_questions  = u.questions.length;
+    const assigned = u.assignedStudents !== undefined ? u.assignedStudents : u.assigned_students;
+    if (assigned !== undefined) payload.assigned_students = assigned;
+    if (u.questions       !== undefined) {
+      payload.questions       = u.questions;
+      payload.total_questions = u.questions.length;
+    }
     if (u.uploaded_file_name || u.uploadedFileName) payload.uploaded_file_name = u.uploaded_file_name || u.uploadedFileName;
     if (u.created_by_email  !== undefined) payload.created_by_email = u.created_by_email;
     if (u.userEmail !== undefined && !payload.created_by_email) payload.created_by_email = u.userEmail;
@@ -326,7 +338,10 @@ router.post('/api/tests/:id/submit', verifyAuth, async (req, res) => {
     student_id: studentFkId,   // null if student profile doesn't exist yet (avoids FK violation)
     student_name: req.user.user_metadata?.full_name || cleanEmail.split('@')[0] || 'Student',
     student_email: cleanEmail,
-    score, max_score: maxScore, answers,
+    score,
+    max_score: maxScore,
+    percentage,
+    answers,
     tab_switch_count: parseInt(tabSwitchCount) || 0,
     time_taken_seconds: parseInt(timeTakenSeconds) || 0,
     correct_count: correctCount,

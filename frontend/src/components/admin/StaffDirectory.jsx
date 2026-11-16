@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, AlertCircle, ArrowLeft, X, Save, Trash2 } from 'lucide-react';
 import { getSupabaseClient } from '../../supabaseClient';
 import StaffDashboard from '../staff/Dashboard';
@@ -17,46 +18,103 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
   
   const [allGroups, setAllGroups] = useState([]);
   const [allTests, setAllTests] = useState([]);
+  const [allTasks, setAllTasks] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // BUG 13 FIX: allUsers may have UserType or role — normalize both
-    const staff = allUsers.filter(u => (u.role || u.UserType || '').toLowerCase() === 'staff');
+    const staff = (allUsers || []).filter(u => (u.role || u.UserType || '').toLowerCase() === 'staff');
     setStaffList(staff);
-    
+  }, [allUsers]);
+
+  useEffect(() => {
+    if (viewingStaff && !activeView) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [viewingStaff, activeView]);
+
+  useEffect(() => {
     const loadStats = async () => {
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-      
-      const { data: groups } = await supabase.from('groups').select('*');
-      setAllGroups(groups || []);
-      
-      let tests = [];
+      setLoading(true);
       try {
-        const { default: api } = await import('../../api');
-        const students = await api.getAllStudents();
-        setAllStudents(Array.isArray(students) ? students : []);
+        const supabase = getSupabaseClient();
+        if (!supabase) return;
         
-        tests = await api.getTests();
-        setAllTests(tests || []);
-      } catch (e) {}
-      
-      if (tests) {
+        const { data: groups } = await supabase.from('groups').select('*');
+        setAllGroups(groups || []);
+        
+        let tests = [];
+        try {
+          const { default: api } = await import('../../api');
+          const students = await api.getAllStudents();
+          setAllStudents(Array.isArray(students) ? students : []);
+          
+          tests = await api.getTests();
+          setAllTests(tests || []);
+        } catch (e) {}
+
+        let tasks = [];
+        try {
+          const { data: fetchedTasks } = await supabase.from('tasks').select('*');
+          const { data: allTaskSubs } = await supabase.from('task_submissions').select('*');
+          if (fetchedTasks && allTaskSubs) {
+            fetchedTasks.forEach(t => {
+              const subs = allTaskSubs.filter(s => String(s.task_id) === String(t.id) && (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
+              if (subs.length > 0) {
+                t.avg = Math.round(subs.reduce((acc, s) => acc + ((Number(s.score) / (t.max_score || 100)) * 100), 0) / subs.length);
+                t.submissionsCount = subs.length;
+                t.hasSubmissions = true;
+              } else {
+                t.avg = 0;
+                t.submissionsCount = 0;
+                t.hasSubmissions = false;
+              }
+            });
+          }
+          tasks = fetchedTasks || [];
+          setAllTasks(tasks);
+        } catch (e) {}
+        
+        const staff = (allUsers || []).filter(u => (u.role || u.UserType || '').toLowerCase() === 'staff');
         const stats = {};
         staff.forEach(s => {
-           const sTests = tests.filter(t => t.created_by_email?.toLowerCase() === s.email.toLowerCase() || t.created_by === s.id);
-           let totalAvg = 0;
-           let count = 0;
-           sTests.forEach(t => {
-             if (t.avg !== undefined) { totalAvg += t.avg; count++; }
-           });
-           stats[s.email.toLowerCase()] = count > 0 ? Math.round(totalAvg / count) : 0;
+          const sTests = (tests || []).filter(t => t.created_by_email?.toLowerCase() === s.email?.toLowerCase() || t.created_by === s.id);
+          const sTasks = (tasks || []).filter(t => t.created_by === s.id);
+
+          const gradedTests = sTests.filter(t => t.status !== 'draft' && (t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0));
+          const testAvg = gradedTests.length > 0 
+            ? Math.round(gradedTests.reduce((acc, t) => acc + (Number(t.avg) || 0), 0) / gradedTests.length)
+            : null;
+
+          const gradedTasks = sTasks.filter(t => t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0);
+          const taskAvg = gradedTasks.length > 0 
+            ? Math.round(gradedTasks.reduce((acc, t) => acc + (Number(t.avg) || 0), 0) / gradedTasks.length)
+            : null;
+
+          let overallAvg = 0;
+          if (testAvg !== null && taskAvg !== null) {
+            overallAvg = Math.round((testAvg + taskAvg) / 2);
+          } else if (testAvg !== null) {
+            overallAvg = testAvg;
+          } else if (taskAvg !== null) {
+            overallAvg = taskAvg;
+          }
+
+          stats[(s.email || '').toLowerCase()] = overallAvg;
         });
         setStaffStats(stats);
+      } finally {
+        setLoading(false);
       }
     };
     loadStats();
-  }, [allUsers]);
+  }, []);
 
   const filteredStaff = staffList.filter(s => {
     const q = searchQuery.toLowerCase();
@@ -126,30 +184,37 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
 
   // If showing dashboard or students list full screen
   if (viewingStaff && activeView) {
-    const avg = staffStats[viewingStaff.email.toLowerCase()] || 0;
-    const staffTests = allTests.filter(t => t.created_by_email?.toLowerCase() === viewingStaff.email.toLowerCase() || t.created_by === viewingStaff.id);
+    const avg = staffStats[viewingStaff.email?.toLowerCase()] || 0;
+    const staffTests = allTests.filter(t => t.created_by_email?.toLowerCase() === viewingStaff.email?.toLowerCase() || t.created_by === viewingStaff.id);
+    const staffGroups = allGroups.filter(g => g.created_by === viewingStaff.id);
+    const staffTasks = allTasks.filter(t => t.created_by === viewingStaff.id);
     const totalTestsCount = staffTests.length;
     const activeTestsCount = staffTests.filter(t => t.status !== 'draft').length;
+    const publishedCount = activeTestsCount;
+    const draftCount = staffTests.filter(t => t.status === 'draft').length;
     const totalStudentsCount = allStudents.filter(s => s.assigned_staff_name === viewingStaff.name || s.assigned_staff_id === viewingStaff.id).length;
     
     return (
-      <div className="dashboard-content">
-        <button onClick={() => setActiveView(null)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', background: 'none', border: 'none', color: '#1d72fe', cursor: 'pointer', fontWeight: 600 }}>
+      <div className="dashboard-content page-transition-enter">
+        <button onClick={() => { setActiveView(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', background: 'none', border: 'none', color: '#1d72fe', cursor: 'pointer', fontWeight: 600 }}>
           <ArrowLeft size={18} /> Back to Staff Info
         </button>
         <div style={{ opacity: 0.95, pointerEvents: 'none' }}>
           {activeView === 'dashboard' && (
             <StaffDashboard 
-              groups={allGroups} 
+              groups={staffGroups} 
               tests={staffTests} 
+              tasks={staffTasks}
               facultyName={viewingStaff.name} 
               totalTestsCount={totalTestsCount}
+              publishedCount={publishedCount}
+              draftCount={draftCount}
               activeTestsCount={activeTestsCount}
               totalStudentsCount={totalStudentsCount}
             />
           )}
           {activeView === 'students' && (
-            <Students facultyName={viewingStaff.name} facultyId={viewingStaff.id} allGroups={allGroups} allTests={allTests} />
+            <Students facultyName={viewingStaff.name} facultyId={viewingStaff.id} allGroups={staffGroups} allTests={staffTests} />
           )}
         </div>
       </div>
@@ -196,7 +261,15 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
               </tr>
             </thead>
             <tbody>
-              {filteredStaff.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
+                    <div style={{ display: 'inline-block', width: 24, height: 24, borderRadius: '50%', border: '3px solid #e2e8f0', borderTopColor: '#8b5cf6', animation: 'spin 0.7s linear infinite', marginBottom: 8 }} />
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600 }}>Loading staff directory...</div>
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </td>
+                </tr>
+              ) : filteredStaff.length === 0 ? (
                 <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>No staff members found.</td></tr>
               ) : (
                 filteredStaff.map((u) => {
@@ -226,27 +299,37 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
         </div>
       </div>
 
-      {viewingStaff && !activeView && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '2rem'
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '600px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+      {viewingStaff && !activeView && createPortal(
+        <div 
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 999999,
             display: 'flex',
-            flexDirection: 'column'
-          }}>
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem',
+            overflowY: 'auto'
+          }}
+          onClick={() => setViewingStaff(null)}
+        >
+          <div 
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '600px',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              margin: 'auto'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem', borderBottom: '1px solid #e2e8f0' }}>
               <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#0f172a' }}>Manage Staff Info</h2>
               <button onClick={() => setViewingStaff(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
@@ -298,13 +381,19 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
                   View As
                 </button>
                 <button 
-                  onClick={() => setActiveView('dashboard')} 
+                  onClick={() => {
+                    setActiveView('dashboard');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }} 
                   style={{ background: '#1d72fe', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
                 >
                   View Dashboard
                 </button>
                 <button 
-                  onClick={() => setActiveView('students')} 
+                  onClick={() => {
+                    setActiveView('students');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }} 
                   style={{ background: '#475569', color: '#fff', border: 'none', padding: '0.65rem 1.25rem', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
                 >
                   View Students
@@ -312,7 +401,8 @@ export default function StaffDirectory({ allUsers, onImpersonate }) {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

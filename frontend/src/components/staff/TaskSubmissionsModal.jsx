@@ -57,10 +57,11 @@ export default function TaskSubmissionsModal({ isOpen, onClose, task, notifySucc
 
   const filtered = submissions.filter(s => {
     const sEmail = (s.users?.mailid || '').toLowerCase();
+    const sName = (s.users?.name || '').toLowerCase();
     const q = (searchTerm || '').toLowerCase();
-    return sEmail.includes(q);
+    return sEmail.includes(q) || sName.includes(q);
   });
-  const reviewedCount = submissions.filter(s => s.status === 'reviewed').length;
+  const reviewedCount = submissions.filter(s => s.status === 'reviewed' || s.status === 'graded').length;
   
   const handleSaveGrade = async (subId) => {
     try {
@@ -219,8 +220,19 @@ export default function TaskSubmissionsModal({ isOpen, onClose, task, notifySucc
                     </div>
                     <div>
                       {sub.status === 'reviewed' ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#dcfce7', color: '#15803d', padding: '0.35rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600 }}>
-                          <CheckCircle2 size={14} /> Reviewed ({sub.score} / {task.max_score})
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          background: sub.score === 0 && !sub.submission_url ? '#fef2f2' : '#dcfce7',
+                          color: sub.score === 0 && !sub.submission_url ? '#dc2626' : '#15803d',
+                          border: sub.score === 0 && !sub.submission_url ? '1px solid #fecaca' : 'none',
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '20px',
+                          fontSize: '0.8rem',
+                          fontWeight: 600
+                        }}>
+                          <CheckCircle2 size={14} /> {sub.score === 0 && !sub.submission_url ? `Time Exceeded (0 / ${task.max_score})` : `Reviewed (${sub.score} / ${task.max_score})`}
                         </span>
                       ) : sub.status === 'resubmit_requested' ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', background: '#fef3c7', color: '#b45309', padding: '0.35rem 0.75rem', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600 }}>
@@ -234,14 +246,27 @@ export default function TaskSubmissionsModal({ isOpen, onClose, task, notifySucc
                     </div>
                   </div>
 
+                  {/* Body for reviewed item with feedback note */}
+                  {sub.status === 'reviewed' && sub.staff_feedback && (
+                    <div style={{ padding: '0.75rem 1.25rem', background: sub.score === 0 ? '#fff5f5' : '#f0fdf4', borderTop: '1px solid #f1f5f9', fontSize: '0.82rem', color: sub.score === 0 ? '#b91c1c' : '#15803d', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700 }}>Note:</span> {sub.staff_feedback}
+                    </div>
+                  )}
+
                   {/* Body */}
                   {sub.status !== 'reviewed' && (
                     <div style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>Project Link:</div>
-                        <a href={normalizeUrl(sub.submission_url)} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: '#1d72fe', textDecoration: 'none', background: '#eff6ff', padding: '0.65rem 1rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
-                          <ExternalLink size={16} /> {sub.submission_url}
-                        </a>
+                        {sub.submission_url ? (
+                          <a href={normalizeUrl(sub.submission_url)} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: '#1d72fe', textDecoration: 'none', background: '#eff6ff', padding: '0.65rem 1rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
+                            <ExternalLink size={16} /> {sub.submission_url}
+                          </a>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', color: '#dc2626', background: '#fef2f2', padding: '0.5rem 0.85rem', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600 }}>
+                            No submission link provided (Time Exceeded)
+                          </span>
+                        )}
                       </div>
                       <div style={{ width: '350px', display: 'flex', flexDirection: 'column', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                         <div>

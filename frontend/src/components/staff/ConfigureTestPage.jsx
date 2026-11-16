@@ -341,7 +341,7 @@ export default function ConfigureTestPage({ onBack, groups = [], onTestCreated, 
         totalQuestions: finalQuestions.length,
         uploaded_file_name: uploadedFileName || (finalQuestions.length > 0 ? `Assessment-${title.trim()}` : ''),
         uploadedFileName: uploadedFileName || (finalQuestions.length > 0 ? `Assessment-${title.trim()}` : ''),
-        maxScore: finalQuestions.length * 10,
+        maxScore: finalQuestions.reduce((acc, q) => acc + (Number(q.marks) || 10), 0),
         assignedStudents: assignTarget === 'specific' ? selectedStudentEmails : []
       });
     } catch (err) {

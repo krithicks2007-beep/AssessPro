@@ -48,16 +48,17 @@ export default function Reports({ groups, tests, tasks }) {
      let rows = [];
      
      if (isTestsMode) {
-        const groupTests = tests.filter(t => t.group_id === group.id);
+        const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
         rows.push(['Test Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
         
         groupTests.forEach(test => {
-           const subs = testSubmissions.filter(s => s.test_id === test.id);
+           const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
            subs.forEach(s => {
               const email = s.student_email || s.email || '';
               const parsed = parseBitEmail(email);
-              const name = s.student_name || parsed?.formattedName || 'Unknown';
-              const reg = s.student_regno || parsed?.predictedRegNo || (email.split('@')[0].split('.')[1] || '').toUpperCase();
+              const name = s.student_name || parsed?.formattedName || 'Student';
+              const reg = s.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
+              const markPct = s.percentage != null ? Math.round(Number(s.percentage)) : (s.max_score > 0 ? Math.round((Number(s.score) / Number(s.max_score)) * 100) : 0);
               
               // Quote strings to prevent CSV breaking on commas
               rows.push([
@@ -65,24 +66,24 @@ export default function Reports({ groups, tests, tasks }) {
                  `"${name}"`,
                  `"${email}"`,
                  `"${reg}"`,
-                 `"${s.percentage != null ? s.percentage + '%' : '0%'}"`
+                 `"${markPct}%"`
               ]);
            });
         });
      } else {
-        const groupTasks = tasks.filter(t => t.group_id === group.id);
+        const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
         rows.push(['Task Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
         
         groupTasks.forEach(task => {
-           const subs = taskSubmissions.filter(s => s.task_id === task.id);
+           const subs = taskSubmissions.filter(s => String(s.task_id) === String(task.id));
            subs.forEach(s => {
               const studentEmail = s.users?.mailid || s.users?.email || s.student_id || 'Unknown';
               const parsed = parseBitEmail(studentEmail);
-              const name = parsed?.formattedName || 'Unknown';
-              const reg = parsed?.predictedRegNo || (studentEmail.split('@')[0].split('.')[1] || '').toUpperCase();
+              const name = s.users?.name || parsed?.formattedName || 'Student';
+              const reg = parsed?.predictedRegNo || (studentEmail.includes('@') ? (studentEmail.split('@')[0].split('.')[1] || '').toUpperCase() : '');
               
               const max = task.max_score || 100;
-              const mark = s.score != null ? `${Math.round((s.score / max) * 100)}%` : 'Ungraded';
+              const mark = s.score != null ? `${max > 0 ? Math.round((Number(s.score) / max) * 100) : 0}%` : 'Ungraded';
               
               rows.push([
                  `"${task.title || 'Untitled'}"`,
@@ -118,14 +119,15 @@ export default function Reports({ groups, tests, tasks }) {
         rows.push(['Group Name', 'Test Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
         
         groups.forEach(group => {
-           const groupTests = tests.filter(t => t.group_id === group.id);
+           const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
            groupTests.forEach(test => {
-              const subs = testSubmissions.filter(s => s.test_id === test.id);
+              const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
               subs.forEach(s => {
                  const email = s.student_email || s.email || '';
                  const parsed = parseBitEmail(email);
-                 const name = s.student_name || parsed?.formattedName || 'Unknown';
-                 const reg = s.student_regno || parsed?.predictedRegNo || (email.split('@')[0].split('.')[1] || '').toUpperCase();
+                 const name = s.student_name || parsed?.formattedName || 'Student';
+                 const reg = s.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
+                 const markPct = s.percentage != null ? Math.round(Number(s.percentage)) : (s.max_score > 0 ? Math.round((Number(s.score) / Number(s.max_score)) * 100) : 0);
                  
                  rows.push([
                     `"${group.name || 'Unnamed Group'}"`,
@@ -133,7 +135,7 @@ export default function Reports({ groups, tests, tasks }) {
                     `"${name}"`,
                     `"${email}"`,
                     `"${reg}"`,
-                    `"${s.percentage != null ? s.percentage + '%' : '0%'}"`
+                    `"${markPct}%"`
                  ]);
               });
            });
@@ -142,17 +144,17 @@ export default function Reports({ groups, tests, tasks }) {
         rows.push(['Group Name', 'Task Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
         
         groups.forEach(group => {
-           const groupTasks = tasks.filter(t => t.group_id === group.id);
+           const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
            groupTasks.forEach(task => {
-              const subs = taskSubmissions.filter(s => s.task_id === task.id);
+              const subs = taskSubmissions.filter(s => String(s.task_id) === String(task.id));
               subs.forEach(s => {
                  const email = s.users?.mailid || s.users?.email || s.student_id || '';
                  const parsed = parseBitEmail(email);
-                 const name = parsed?.formattedName || 'Unknown';
-                 const reg = parsed?.predictedRegNo || (email.split('@')[0].split('.')[1] || '').toUpperCase();
+                 const name = s.users?.name || parsed?.formattedName || 'Student';
+                 const reg = parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
                  
                  const max = task.max_score || 100;
-                 const mark = s.score != null ? `${Math.round((s.score / max) * 100)}%` : 'Ungraded';
+                 const mark = s.score != null ? `${max > 0 ? Math.round((Number(s.score) / max) * 100) : 0}%` : 'Ungraded';
                  
                  rows.push([
                     `"${group.name || 'Unnamed Group'}"`,
@@ -396,16 +398,16 @@ export default function Reports({ groups, tests, tasks }) {
                                                  const email = sub.student_email || sub.email || '';
                                                  const parsed = parseBitEmail(email);
                                                  name = sub.student_name || parsed?.formattedName || 'Student';
-                                                 mark = sub.percentage != null ? `${sub.percentage}%` : '0%';
-                                                 reg = sub.student_regno || parsed?.predictedRegNo || (email.split('@')[0].split('.')[1] || '').toUpperCase();
+                                                 const pctVal = sub.percentage != null ? Math.round(Number(sub.percentage)) : (sub.max_score > 0 ? Math.round((Number(sub.score) / Number(sub.max_score)) * 100) : 0);
+                                                 mark = String(pctVal) + '%';
+                                                 reg = sub.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
                                               } else {
                                                  const email = sub.users?.mailid || sub.users?.email || sub.student_id || 'Unknown';
                                                  const parsed = parseBitEmail(email);
-                                                 name = parsed?.formattedName || 'Unknown';
-                                                 reg = parsed?.predictedRegNo || (email.split('@')[0].split('.')[1] || '').toUpperCase();
-                                                 
+                                                 name = sub.users?.name || parsed?.formattedName || 'Student';
+                                                 reg = parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
                                                  const max = item.max_score || 100;
-                                                 mark = sub.score != null ? `${Math.round((sub.score / max) * 100)}%` : 'Ungraded';
+                                                 mark = sub.score != null ? String(max > 0 ? Math.round((Number(sub.score) / max) * 100) : 0) + '%' : 'Ungraded';
                                               }
 
                                               return (

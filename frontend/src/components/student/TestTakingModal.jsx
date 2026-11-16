@@ -125,20 +125,26 @@ function TestTakingModalInner({ onClose, test, student, onTestCompleted }) {
     // 1. Accurate client-side score computation
     let correct = 0;
     const totalQ = questions.length || 1;
-    const maxScore = test.max_score || (totalQ * 10);
-    const pointsPerQ = maxScore / totalQ;
+    const maxScore = Number(test.max_score) > 0 
+      ? Number(test.max_score) 
+      : (questions.reduce((acc, q) => acc + (Number(q.marks) || 10), 0) || (totalQ * 10));
+    const pointsPerQ = totalQ > 0 ? maxScore / totalQ : 0;
     let earnedScore = 0;
 
     questions.forEach((q, idx) => {
-      const studentAns = answers[q.id] !== undefined ? answers[q.id] : answers[idx];
-      if (studentAns !== undefined && Number(studentAns) === Number(q.correct_index)) {
+      const studentAns = (q.id !== undefined && answers[q.id] !== undefined)
+        ? answers[q.id]
+        : (q.id !== undefined && answers[String(q.id)] !== undefined)
+          ? answers[String(q.id)]
+          : answers[idx];
+      if (studentAns !== undefined && studentAns !== null && Number(studentAns) === Number(q.correct_index)) {
         correct++;
-        earnedScore += (q.marks || pointsPerQ);
+        earnedScore += (Number(q.marks) || pointsPerQ);
       }
     });
 
     const finalScore = Math.min(maxScore, Math.round(earnedScore));
-    const finalPercentage = Math.min(100, Math.round((finalScore / maxScore) * 100));
+    const finalPercentage = maxScore > 0 ? Math.min(100, Math.round((finalScore / maxScore) * 100)) : 0;
 
     const submissionPayload = {
       id: 'sub-' + Date.now(),

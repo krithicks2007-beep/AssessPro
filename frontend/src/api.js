@@ -394,20 +394,24 @@ export const api = {
 
               const { data: subsData } = await supabase
                 .from('test_submissions')
-                .select('test_id, score, max_score')
-                .in('test_id', testIds);
+                .select('test_id, score, max_score, percentage')
+                .in('test_id', testIds)
+                .eq('status', 'completed');
+              let countMap = {};
               if (subsData) {
                 const aggs = {};
                 subsData.forEach(s => {
                    if (!aggs[s.test_id]) aggs[s.test_id] = { totalPct: 0, count: 0 };
-                   const pct = s.max_score > 0 ? (s.score / s.max_score) * 100 : 0;
+                   const pct = s.percentage != null 
+                     ? Number(s.percentage) 
+                     : (s.max_score > 0 ? (Number(s.score) / Number(s.max_score)) * 100 : 0);
                    aggs[s.test_id].totalPct += pct;
                    aggs[s.test_id].count++;
                 });
                 for (const tId in aggs) {
-                   const tObj = data.find(t => t.id === tId);
                    const denominator = aggs[tId].count;
                    avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
+                   countMap[tId] = denominator;
                 }
               }
             }
@@ -417,7 +421,9 @@ export const api = {
 
           let list = data.map(t => ({
             ...t,
-            avg: avgMap[t.id] || 0,
+            avg: avgMap[t.id] !== undefined ? avgMap[t.id] : 0,
+            submissionsCount: countMap[t.id] || 0,
+            hasSubmissions: avgMap[t.id] !== undefined,
             questions: Array.isArray(t.questions) ? t.questions : [],
             assigned_students: Array.isArray(t.assigned_students) ? t.assigned_students : [],
             total_questions: Array.isArray(t.questions) ? t.questions.length : (t.total_questions || 0),
@@ -660,14 +666,21 @@ export const api = {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error('Submission could not be saved: Backend unreachable');
 
+      const maxScoreVal = submissionData.max_score || 0;
+      const scoreVal = submissionData.score || 0;
+      const pctVal = submissionData.percentage !== undefined && submissionData.percentage !== null
+        ? submissionData.percentage
+        : (maxScoreVal > 0 ? Math.round((scoreVal / maxScoreVal) * 100) : 0);
+
       const payload = {
         test_id: testId,
         student_email: submissionData.studentEmail || submissionData.student_email,
         student_name: submissionData.studentName || submissionData.student_name,
-        score: submissionData.score || 0,
+        score: scoreVal,
+        percentage: pctVal,
         correct_count: submissionData.correct_count || 0,
         total_questions: submissionData.total_questions || 0,
-        max_score: submissionData.max_score || 0,
+        max_score: maxScoreVal,
         tab_switch_count: submissionData.tabSwitchCount || submissionData.tab_switch_count || 0,
         time_taken_seconds: submissionData.timeTakenSeconds || submissionData.time_taken_seconds || 0,
         answers: submissionData.answers || {},
@@ -941,15 +954,33 @@ export const api = {
     return { status: 'none', role: 'unassigned' };
   },
   // Ban a user
-  banUser: async (email, ban_type) => {
-    const res = await fetchWithTimeout(`${API_BASE}/admin/ban`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ email, ban_type })
-    });
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.error || 'Failed to ban user');
-    return data;
+  banUser: async (email, ban_type = 'suspended_hard') => {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/admin/ban`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ email, ban_type })
+      });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data.error || 'Failed to ban user');
+      return data;
+    } catch (err) {
+      if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError') && !err.message.includes('timed out')) {
+        throw err;
+      }
+      const supabase = getSupabaseClient();
+      if (!supabase) throw err;
+      const cleanEmail = email.toLowerCase().trim();
+      await supabase.from('banned_users').upsert({ email: cleanEmail, ban_type, request_state: 'none' });
+      const { data: user } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+      if (user?.id) {
+        await supabase.from('test_submissions').delete().eq('student_email', cleanEmail);
+        await supabase.from('task_submissions').delete().eq('student_id', user.id);
+        await supabase.from('students').delete().eq('id', user.id);
+        await supabase.from('users').delete().eq('id', user.id);
+      }
+      return { message: 'User banned and data wiped successfully' };
+    }
   },
 
   // Get student requests
@@ -1093,7 +1124,12 @@ export const api = {
   // 8. Students Registry & Staff Mapping
   async getAllStudents(options = {}) {
     const assignedTo = options.assigned_to || options.assignedTo || '';
-    const qs = assignedTo ? `?assigned_to=${encodeURIComponent(assignedTo)}` : '';
+    const assignedName = options.assigned_name || options.assignedName || options.staffName || '';
+    
+    const params = [];
+    if (assignedTo) params.push(`assigned_to=${encodeURIComponent(assignedTo)}`);
+    if (assignedName) params.push(`assigned_name=${encodeURIComponent(assignedName)}`);
+    const qs = params.length > 0 ? `?${params.join('&')}` : '';
 
     try {
       const res = await fetchWithTimeout(`${API_BASE}/students${qs}`, { headers: getAuthHeaders() });
@@ -1105,7 +1141,7 @@ export const api = {
       console.warn('API /students fetch warning:', e.message);
     }
 
-    // Direct Supabase fallback — also apply the assigned_to filter
+    // Direct Supabase fallback — also apply the assigned_to and assigned_name filter
     try {
       const supabase = getSupabaseClient();
       if (supabase) {
@@ -1137,9 +1173,13 @@ export const api = {
             };
           });
 
-          // Apply assigned_to filter in Supabase fallback path
-          if (assignedTo) {
-            mapped = mapped.filter(s => s.assigned_staff_id === assignedTo);
+          // Apply assigned filter in Supabase fallback path
+          if (assignedTo || assignedName) {
+            mapped = mapped.filter(s => {
+              const matchesId = assignedTo && (s.assigned_staff_id === assignedTo || String(s.assigned_staff_id) === String(assignedTo));
+              const matchesName = assignedName && s.assigned_staff_name && s.assigned_staff_name.toLowerCase().trim() === assignedName.toLowerCase().trim();
+              return matchesId || matchesName;
+            });
           }
 
           return mapped;
@@ -1162,13 +1202,34 @@ export const api = {
       if (res.ok) return await safeJson(res);
     } catch (e) {}
 
+    // Direct Supabase fallback
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase && Array.isArray(studentEmails)) {
+        const { data: usersFound } = await supabase
+          .from('users')
+          .select('id, mailid')
+          .in('mailid', studentEmails.map(e => (e || '').toLowerCase().trim()));
+        if (usersFound && usersFound.length > 0) {
+          for (const u of usersFound) {
+            await supabase.from('students').update({
+              assigned_staff_id: staffId || null,
+              assigned_staff_name: staffName || null
+            }).eq('id', u.id);
+          }
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase assignStudentsToStaff error:', sbErr);
+    }
+
     const localMap = JSON.parse(localStorage.getItem('assesspro_staff_student_mapping') || '{}');
     studentEmails.forEach(em => {
       localMap[em.toLowerCase().trim()] = {
-        staffId,
-        staffName,
-        assigned_staff_id: staffId,
-        assigned_staff_name: staffName
+        staffId: staffId || null,
+        staffName: staffName || null,
+        assigned_staff_id: staffId || null,
+        assigned_staff_name: staffName || null
       };
     });
     localStorage.setItem('assesspro_staff_student_mapping', JSON.stringify(localMap));
@@ -1197,6 +1258,26 @@ export const api = {
       }
     } catch (e) {
       console.warn('API getAssignedStaff error:', e.message);
+    }
+
+    try {
+      const supabase = getSupabaseClient();
+      if (supabase && cleanEmail) {
+        const { data: userRec } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+        if (userRec?.id) {
+          const { data: stRec } = await supabase.from('students').select('assigned_staff_name, assigned_staff_id').eq('id', userRec.id).maybeSingle();
+          if (stRec?.assigned_staff_name) {
+            return {
+              assigned_staff_name: stRec.assigned_staff_name,
+              assigned_staff_id: stRec.assigned_staff_id,
+              staffName: stRec.assigned_staff_name,
+              staffId: stRec.assigned_staff_id
+            };
+          }
+        }
+      }
+    } catch (sbErr) {
+      console.warn('Direct Supabase getAssignedStaff error:', sbErr.message);
     }
 
     return { assigned_staff_name: null, assigned_staff_id: null, staffName: null, staffId: null };

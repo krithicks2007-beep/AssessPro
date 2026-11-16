@@ -25,7 +25,8 @@ export default function Profile({
   overallScore,
   testsCompletedCount,
   onRequestEditProfile,
-  institution
+  institution,
+  assignedStaff
 }) {
   const isBitEmail = (email || '').toLowerCase().endsWith('@bitsathy.ac.in');
   const institutionName = isBitEmail ? 'Bannari Amman Institute of Technology' : (institution || parsed?.institution || 'External Institution');
@@ -144,6 +145,12 @@ export default function Profile({
             <div>
               <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Assigned Section</span>
               <strong style={{ color: '#1e293b' }}>Section {studentSection}</strong>
+            </div>
+            <div>
+              <span style={{ color: '#64748b', display: 'block', fontSize: '0.75rem', fontWeight: 600 }}>Faculty Mentor</span>
+              <strong style={{ color: (assignedStaff?.assigned_staff_name || assignedStaff?.staffName) ? '#059669' : '#64748b' }}>
+                {(assignedStaff?.assigned_staff_name || assignedStaff?.staffName) ? `👨‍🏫 ${assignedStaff.assigned_staff_name || assignedStaff.staffName}` : 'Unassigned / No Mentor'}
+              </strong>
             </div>
           </div>
         </div>

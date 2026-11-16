@@ -1534,3 +1534,96 @@ body {
   padding-left: 2.5rem !important;
 }
 
+/* =========================================================================
+   Smooth Page & Tab Transition Animations
+   ========================================================================= */
+.page-transition-enter {
+  animation: apPageFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  width: 100%;
+}
+
+@keyframes apPageFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Smooth Navigation Link Transitions */
+.nav-link {
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.nav-link:hover {
+  transform: translateX(3px);
+}
+
+.nav-link.active {
+  transform: translateX(4px);
+}
+
+/* Smooth Card Hover Transitions */
+.kpi-card, .table-card, .chart-card, .test-card, .task-card {
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition-enter {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* Custom sleek scrollbar for cards & lists */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+/* Sleek Modal Animation & Styling */
+@keyframes apModalBackdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes apModalCardScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.ap-modal-backdrop {
+  animation: apModalBackdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.ap-modal-card {
+  animation: apModalCardScaleIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+
+

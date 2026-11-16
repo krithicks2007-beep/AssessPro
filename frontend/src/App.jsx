@@ -16,6 +16,8 @@ import RoleSelectionModal from './components/auth/RoleSelectionModal';
 import DeletedUserScreen from './components/auth/DeletedUserScreen';
 import { isMasterAccount, parseBitEmail } from './utils/studentParser';
 import { GraduationCap, LogOut, CheckCircle2, AlertCircle } from 'lucide-react';
+import LoadingScreen from './components/shared/LoadingScreen';
+import OfflineBanner from './components/shared/OfflineBanner';
 
 export default function App() {
   const [, setSession] = useState(null);
@@ -27,6 +29,7 @@ export default function App() {
   const [banDetails, setBanDetails] = useState(null);
   const [appActionSuccess, setAppActionSuccess] = useState('');
   const [appActionError, setAppActionError] = useState('');
+  const [authChecking, setAuthChecking] = useState(true);
   
   // Impersonation state
   const [impersonatedUser, setImpersonatedUser] = useState(null);
@@ -189,7 +192,7 @@ export default function App() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
       if (session?.user) {
-        validateAndSetSession(session);
+        await validateAndSetSession(session);
       } else {
         // Fallback for manual logins where session is only in localStorage
         const token = localStorage.getItem('assesspro_auth_token');
@@ -197,7 +200,7 @@ export default function App() {
           try {
             const profileInfo = await api.getUserProfile();
             if (profileInfo && profileInfo.user) {
-              validateAndSetSession({ user: profileInfo.user, access_token: token });
+              await validateAndSetSession({ user: profileInfo.user, access_token: token });
             } else {
               localStorage.removeItem('assesspro_auth_token');
             }
@@ -206,6 +209,9 @@ export default function App() {
           }
         }
       }
+      if (isMounted) setAuthChecking(false);
+    }).catch(() => {
+      if (isMounted) setAuthChecking(false);
     });
 
     const handleSessionExpired = async () => {
@@ -223,18 +229,22 @@ export default function App() {
     
     const handleAccountDeleted = () => {
       setCurrentRole('deleted');
-      setLoading(false);
+      setAuthChecking(false);
     };
 
     const handleAccountBanned = (e) => {
       setBanDetails(e.detail);
       setCurrentRole('banned');
-      setLoading(false);
+      setAuthChecking(false);
     };
 
     window.addEventListener('session-expired', handleSessionExpired);
     window.addEventListener('account-deleted', handleAccountDeleted);
     window.addEventListener('account-banned', handleAccountBanned);
+
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setAuthChecking(false);
+    }, 2000);
 
     return () => {
       isMounted = false;
@@ -242,6 +252,7 @@ export default function App() {
       window.removeEventListener('session-expired', handleSessionExpired);
       window.removeEventListener('account-deleted', handleAccountDeleted);
       window.removeEventListener('account-banned', handleAccountBanned);
+      clearTimeout(safetyTimer);
     };
   }, [validateAndSetSession]);
 
@@ -321,6 +332,16 @@ export default function App() {
     }
   };
 
+  // Initial auth checking loading view
+  if (authChecking) {
+    return (
+      <>
+        <OfflineBanner />
+        <LoadingScreen message="Checking authentication & profile..." />
+      </>
+    );
+  }
+
   // If user is logged in, show their dedicated full-screen dashboard matching the screenshots
   if (currentUser) {
     const activeRole = impersonatedRole || currentRole;
@@ -346,6 +367,7 @@ export default function App() {
 
     return (
       <div style={{ position: 'relative', width: '100%', minHeight: '100vh', paddingTop: impersonatedUser ? '40px' : '0' }}>
+        <OfflineBanner />
         {impersonatedUser && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: '#ef4444', color: '#fff', zIndex: 999999, padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>
             ⚠️ You are currently viewing AssessPro as {activeRole}: {activeUser?.user_metadata?.full_name || activeUser?.name || activeUser?.email}. 
@@ -449,24 +471,26 @@ export default function App() {
           />
         )}
 
-        {activeRole === 'student' && (
-          <StudentLayout 
-            user={activeUser} 
-            studentProfile={effectiveStudentProfile}
-            onRequestEditProfile={() => setShowOnboarding(true)}
-            onSignOut={handleSignOut} 
-          />
-        )}
-        {activeRole === 'staff' && (
-          <StaffLayout user={activeUser} onSignOut={handleSignOut} initialTab="Dashboard" />
-        )}
-        {activeRole === 'admin' && (
-          <AdminLayout 
-            user={activeUser} 
-            onSignOut={handleSignOut} 
-            onImpersonate={(u, r) => { setImpersonatedUser(u); setImpersonatedRole(r); }}
-          />
-        )}
+        <div key={activeRole} className="page-transition-enter">
+          {activeRole === 'student' && (
+            <StudentLayout 
+              user={activeUser} 
+              studentProfile={effectiveStudentProfile}
+              onRequestEditProfile={() => setShowOnboarding(true)}
+              onSignOut={handleSignOut} 
+            />
+          )}
+          {activeRole === 'staff' && (
+            <StaffLayout user={activeUser} onSignOut={handleSignOut} initialTab="Dashboard" />
+          )}
+          {activeRole === 'admin' && (
+            <AdminLayout 
+              user={activeUser} 
+              onSignOut={handleSignOut} 
+              onImpersonate={(u, r) => { setImpersonatedUser(u); setImpersonatedRole(r); }}
+            />
+          )}
+        </div>
 
         {/* Student Onboarding & Profile Modal */}
         <StudentOnboardingModal
@@ -541,6 +565,7 @@ export default function App() {
   // Not logged in: Show the clean centered Login view with top bar
   return (
     <div className="app-container">
+      <OfflineBanner />
       {/* Light Navbar */}
       <header className="navbar">
         <div className="brand">

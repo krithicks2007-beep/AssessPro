@@ -60,8 +60,9 @@ export default function ViewSubmissionsModal({ isOpen, onClose, test }) {
   });
 
   const flaggedCount = submissions.filter(s => (s.tab_switch_count || 0) > 0).length;
-  const avgScore = submissions.length > 0
-    ? Math.round(submissions.reduce((acc, s) => acc + (s.percentage || 0), 0) / submissions.length)
+  const completedSubs = submissions.filter(s => s.status === 'completed');
+  const avgScore = completedSubs.length > 0
+    ? Math.round(completedSubs.reduce((acc, s) => acc + Number(s.percentage != null ? s.percentage : (s.max_score > 0 ? (s.score / s.max_score) * 100 : 0)), 0) / completedSubs.length)
     : 0;
 
   return (

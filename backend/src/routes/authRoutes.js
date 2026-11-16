@@ -113,11 +113,16 @@ router.get('/api/students', verifyAuth, requireRoles('staff', 'admin'), async (r
       };
     });
 
-    // Optional filter: only return students assigned to a specific staff member
+    // Optional filter: only return students assigned to a specific staff member (by ID or by name)
     const assignedTo = req.query.assigned_to || '';
-    if (assignedTo) {
+    const assignedName = req.query.assigned_name || req.query.staffName || '';
+    if (assignedTo || assignedName) {
       const effectiveId = assignedTo === 'me' ? req.user.id : assignedTo;
-      return res.json(studentList.filter(s => s.assigned_staff_id === effectiveId));
+      return res.json(studentList.filter(s => {
+        const matchesId = effectiveId && (s.assigned_staff_id === effectiveId || String(s.assigned_staff_id) === String(effectiveId));
+        const matchesName = assignedName && s.assigned_staff_name && s.assigned_staff_name.toLowerCase().trim() === assignedName.toLowerCase().trim();
+        return matchesId || matchesName;
+      }));
     }
 
     res.json(studentList);
@@ -127,12 +132,12 @@ router.get('/api/students', verifyAuth, requireRoles('staff', 'admin'), async (r
 });
 
 
-// Staff assigns students to themselves
+// Staff assigns or unassigns students
 router.post('/api/staff/assign-students', verifyAuth, requireRoles('staff', 'admin'), async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not connected' });
   const { staffId, staffName, studentEmails } = req.body;
-  if (!staffName || !Array.isArray(studentEmails)) {
-    return res.status(400).json({ error: 'Staff details and student emails array are required' });
+  if (!Array.isArray(studentEmails)) {
+    return res.status(400).json({ error: 'Student emails array is required' });
   }
 
   try {
@@ -146,12 +151,12 @@ router.post('/api/staff/assign-students', verifyAuth, requireRoles('staff', 'adm
       for (const u of usersFound) {
         await supabase.from('students').update({
           assigned_staff_id: isUUID(staffId) ? staffId : null,
-          assigned_staff_name: staffName
+          assigned_staff_name: staffName || null
         }).eq('id', u.id);
       }
     }
 
-    res.json({ success: true, count: studentEmails.length, message: `Assigned ${studentEmails.length} student(s) to ${staffName}` });
+    res.json({ success: true, count: studentEmails.length, message: staffName ? `Assigned ${studentEmails.length} student(s) to ${staffName}` : `Unmapped ${studentEmails.length} student(s)` });
   } catch (err) {
     res.status(500).json({ error: 'Failed to assign students', details: err.message });
   }

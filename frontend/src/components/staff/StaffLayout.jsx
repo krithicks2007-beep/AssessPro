@@ -33,6 +33,8 @@ import Tasks from './Tasks';
 import GroupsModal from './Groups';
 import Students from './Students';
 import Reports from './Reports';
+import LoadingScreen from '../shared/LoadingScreen';
+import OfflineBanner from '../shared/OfflineBanner';
 
 export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' }) {
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -46,6 +48,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
   const [totalStudentsCount, setTotalStudentsCount] = useState(0);
+  const [totalCollegeStudents, setTotalCollegeStudents] = useState(0);
+  const [mappedStudents, setMappedStudents] = useState([]);
 
   // Staff Profile & Onboarding States
   const [staffProfile, setStaffProfile] = useState(null);
@@ -124,19 +128,39 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       }
 
       // Fallback to API if direct Supabase failed
-      if (!resolvedProfile) {
-        resolvedProfile = await api.getStaffProfile(user?.email);
+      if (!resolvedProfile && typeof api.getStaffProfile === 'function') {
+        try {
+          resolvedProfile = await api.getStaffProfile(user?.email);
+        } catch (_) {}
       }
+
+      const resolvedName = resolvedProfile?.name 
+        || resolvedProfile?.full_name 
+        || user?.user_metadata?.full_name 
+        || user?.user_metadata?.name 
+        || (user?.email ? user.email.split('@')[0] : 'Faculty Member');
 
       const [fetchedGroups, fetchedTests, fetchedStudents] = await Promise.all([
         // Pass staffId so backend returns ONLY this staff member's groups
         api.getGroups({ staffId: user?.id }),
         api.getTests({ staffEmail: user?.email, staffId: user?.id }),
-        // Only count students assigned to THIS staff member
-        api.getAllStudents({ assigned_to: user?.id })
+        // Fetch all students to accurately identify mapped mentees
+        api.getAllStudents()
       ]);
       setGroups(fetchedGroups || []);
       setTests(fetchedTests || []);
+
+      const allStuds = Array.isArray(fetchedStudents) ? fetchedStudents : [];
+      setTotalCollegeStudents(allStuds.length);
+
+      // Students mapped to this staff member (by ID or by name)
+      const mapped = allStuds.filter(s => {
+        const matchesId = user?.id && (s.assigned_staff_id === user.id || String(s.assigned_staff_id) === String(user.id));
+        const matchesName = resolvedName && s.assigned_staff_name && s.assigned_staff_name.toLowerCase().trim() === resolvedName.toLowerCase().trim();
+        return matchesId || matchesName;
+      });
+      setMappedStudents(mapped);
+      setTotalStudentsCount(mapped.length);
 
       const supabase = getSupabaseClient();
       if (supabase) {
@@ -147,20 +171,21 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         
         if (fetchedTasks && allTaskSubs) {
            fetchedTasks.forEach(t => {
-               const subs = allTaskSubs.filter(s => s.task_id === t.id && s.status === 'reviewed' && s.score != null);
+               const subs = allTaskSubs.filter(s => String(s.task_id) === String(t.id) && (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
                if (subs.length > 0) {
-                   t.avg = subs.reduce((acc, s) => acc + ((s.score / (t.max_score || 100)) * 100), 0) / subs.length;
+                   t.avg = Math.round(subs.reduce((acc, s) => acc + ((Number(s.score) / (t.max_score || 100)) * 100), 0) / subs.length);
+                   t.submissionsCount = subs.length;
+                   t.hasSubmissions = true;
                } else {
                    t.avg = 0;
+                   t.submissionsCount = 0;
+                   t.hasSubmissions = false;
                }
            });
         }
         
         setTasks(fetchedTasks || []);
       }
-
-      // Count only students assigned to this staff member
-      setTotalStudentsCount(Array.isArray(fetchedStudents) ? fetchedStudents.length : 0);
 
       if (resolvedProfile && resolvedProfile.department) {
         setStaffProfile(resolvedProfile);
@@ -186,12 +211,17 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       }
     } catch (err) {
       console.error('Error loading live data:', err);
+    } finally {
+      setLoading(false);
     }
   };
 
   // Load live groups and tests from backend API
   useEffect(() => {
     loadData();
+    // Safety fallback: ensure loading never hangs under any circumstances
+    const timer = setTimeout(() => setLoading(false), 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Helper for flash messages
@@ -477,8 +507,11 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
     { label: 'Profile', icon: User },
   ];
 
+  if (loading) return <LoadingScreen role="staff" message="Loading your faculty dashboard..." />;
+
   return (
     <div className="layout-wrapper">
+      <OfflineBanner />
       {/* Sidebar matching Screenshot 1 */}
       <aside className="sidebar">
         <div className="sidebar-logo">
@@ -610,122 +643,130 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         )}
 
         {/* Active Tab View */}
-        {selectedDraftTest ? (
-          <ConfigureTestPage
-            groups={safeGroups}
-            existingTest={selectedDraftTest}
-            onBack={() => setSelectedDraftTest(null)}
-            onTestCreated={handleUpdateTest}
-          />
-        ) : activeTab === 'Profile' ? (
-          <StaffProfile
-            facultyName={facultyName}
-            facultyDept={facultyDept}
-            facultyDesignation={facultyDesignation}
-            facultyStaffCode={facultyStaffCode}
-            facultyPhone={facultyPhone}
-            facultyInstitution={facultyInstitution}
-            facultySpecialization={facultySpecialization}
-            facultyOffice={facultyOffice}
-            email={user?.email}
-            totalTestsCount={totalTestsCount}
-            activeTestsCount={activeTestsCount}
-            groupsCount={safeGroups.length}
-            onRequestEditProfile={() => setShowOnboarding(true)}
-          />
-        ) : activeTab === 'Students' ? (
-          <Students
-            facultyName={facultyName}
-            facultyId={user?.id}
-            allGroups={groups}
-            allTests={tests}
-            onViewingStudentChange={setIsViewingStudent}
-          />
-        ) : activeTab === 'Tests' ? (
-          <Tests
-            tests={safeTests}
-            onCreateTest={handleCreateDraft}
-            onConfigureTest={(t) => setSelectedDraftTest(t)}
-            onQuickLaunch={handleQuickLaunch}
-            onViewSubmissions={setSelectedTestForSubmissions}
-            onDeleteTest={handleDeleteTest}
-            onCopyTest={handleCopyTest}
-          />
-        ) : activeTab === 'Tasks' ? (
-          <Tasks
-            tasks={tasks}
-            onCreateTask={() => {
-              setSelectedTaskForEdit(null);
-              setShowAssignWorkModal(true);
-            }}
-            onViewSubmissions={(t) => setSelectedTaskForSubmissions(t)}
-            onCopyTask={handleCopyTask}
-            onConfigureTask={(t) => {
-              setSelectedTaskForEdit(t);
-              setShowCreateTaskModal(true);
-            }}
-            onQuickLaunch={async (t) => {
-              try {
-                const supabase = getSupabaseClient();
-                await supabase.from('tasks').update({ status: 'published' }).eq('id', t.id);
-                notifySuccess('Task launched successfully!');
-                await loadData();
-              } catch (err) {
-                notifyError('Failed to launch task');
-              }
-            }}
-            onDeleteTask={async (taskId) => {
-              try {
-                const supabase = getSupabaseClient();
-                await supabase.from('tasks').delete().eq('id', taskId);
-                setTasks(prev => prev.filter(t => t.id !== taskId));
-                notifySuccess('Task deleted successfully');
-              } catch (err) {
-                notifyError('Failed to delete task');
-              }
-            }}
-          />
-        ) : activeTab === 'Manage Groups' ? (
-          <GroupsModal
-            groups={safeGroups}
-            groupColors={groupColors}
-            editingGroupId={editingGroupId}
-            editingGroupName={editingGroupName}
-            setEditingGroupName={setEditingGroupName}
-            onStartRename={handleStartRename}
-            onSaveRename={handleSaveRename}
-            onCancelRename={handleCancelRename}
-            onDeleteGroup={handleDeleteGroup}
-            newGroupName={newGroupName}
-            setNewGroupName={setNewGroupName}
-            newGroupCategory={newGroupCategory}
-            setNewGroupCategory={setNewGroupCategory}
-            newGroupType={newGroupType}
-            setNewGroupType={setNewGroupType}
-            facultyDept={facultyDept}
-            onAddNewGroup={handleAddNewGroup}
-          />
-        ) : activeTab === 'Reports' ? (
-          <Reports
-            groups={safeGroups}
-            tests={safeTests}
-            tasks={tasks}
-          />
-        ) : (
-          <Dashboard
-            groups={safeGroups}
-            tests={safeTests}
-            tasks={tasks}
-            totalTestsCount={totalTestsCount}
-            totalStudentsCount={totalStudentsCount}
-            publishedCount={publishedCount}
-            draftCount={draftCount}
-            activeTestsCount={activeTestsCount}
-            onManageGroups={() => setActiveTab('Manage Groups')}
-            onCreateTest={handleCreateDraft}
-            onViewSubmissions={setSelectedTestForSubmissions}
-          />
-        )}
+        <div key={selectedDraftTest ? `draft-${selectedDraftTest.id || 'new'}` : activeTab} className="page-transition-enter">
+          {selectedDraftTest ? (
+            <ConfigureTestPage
+              groups={safeGroups}
+              existingTest={selectedDraftTest}
+              onBack={() => setSelectedDraftTest(null)}
+              onTestCreated={handleUpdateTest}
+            />
+          ) : activeTab === 'Profile' ? (
+            <StaffProfile
+              facultyName={facultyName}
+              facultyDept={facultyDept}
+              facultyDesignation={facultyDesignation}
+              facultyStaffCode={facultyStaffCode}
+              facultyPhone={facultyPhone}
+              facultyInstitution={facultyInstitution}
+              facultySpecialization={facultySpecialization}
+              facultyOffice={facultyOffice}
+              email={user?.email}
+              totalTestsCount={totalTestsCount}
+              activeTestsCount={activeTestsCount}
+              groupsCount={safeGroups.length}
+              onRequestEditProfile={() => setShowOnboarding(true)}
+            />
+          ) : activeTab === 'Students' ? (
+            <Students
+              facultyName={facultyName}
+              facultyId={user?.id}
+              allGroups={groups}
+              allTests={tests}
+              onViewingStudentChange={setIsViewingStudent}
+              onMappingChange={loadData}
+            />
+          ) : activeTab === 'Tests' ? (
+            <Tests
+              tests={safeTests}
+              onCreateTest={handleCreateDraft}
+              onConfigureTest={(t) => setSelectedDraftTest(t)}
+              onQuickLaunch={handleQuickLaunch}
+              onViewSubmissions={setSelectedTestForSubmissions}
+              onDeleteTest={handleDeleteTest}
+              onCopyTest={handleCopyTest}
+            />
+          ) : activeTab === 'Tasks' ? (
+            <Tasks
+              tasks={tasks}
+              onCreateTask={() => {
+                setSelectedTaskForEdit(null);
+                setShowAssignWorkModal(true);
+              }}
+              onViewSubmissions={(t) => setSelectedTaskForSubmissions(t)}
+              onCopyTask={handleCopyTask}
+              onConfigureTask={(t) => {
+                setSelectedTaskForEdit(t);
+                setShowCreateTaskModal(true);
+              }}
+              onQuickLaunch={async (t) => {
+                try {
+                  const supabase = getSupabaseClient();
+                  await supabase.from('tasks').update({ status: 'published' }).eq('id', t.id);
+                  notifySuccess('Task launched successfully!');
+                  await loadData();
+                } catch (err) {
+                  notifyError('Failed to launch task');
+                }
+              }}
+              onDeleteTask={async (taskId) => {
+                try {
+                  const supabase = getSupabaseClient();
+                  await supabase.from('tasks').delete().eq('id', taskId);
+                  setTasks(prev => prev.filter(t => t.id !== taskId));
+                  notifySuccess('Task deleted successfully');
+                } catch (err) {
+                  notifyError('Failed to delete task');
+                }
+              }}
+            />
+          ) : activeTab === 'Manage Groups' ? (
+            <GroupsModal
+              groups={safeGroups}
+              groupColors={groupColors}
+              editingGroupId={editingGroupId}
+              editingGroupName={editingGroupName}
+              setEditingGroupName={setEditingGroupName}
+              onStartRename={handleStartRename}
+              onSaveRename={handleSaveRename}
+              onCancelRename={handleCancelRename}
+              onDeleteGroup={handleDeleteGroup}
+              newGroupName={newGroupName}
+              setNewGroupName={setNewGroupName}
+              newGroupCategory={newGroupCategory}
+              setNewGroupCategory={setNewGroupCategory}
+              newGroupType={newGroupType}
+              setNewGroupType={setNewGroupType}
+              facultyDept={facultyDept}
+              onAddNewGroup={handleAddNewGroup}
+            />
+          ) : activeTab === 'Reports' ? (
+            <Reports
+              groups={safeGroups}
+              tests={safeTests}
+              tasks={tasks}
+            />
+          ) : (
+            <Dashboard
+              groups={safeGroups}
+              tests={safeTests}
+              tasks={tasks}
+              totalTestsCount={totalTestsCount}
+              totalStudentsCount={totalStudentsCount}
+              totalCollegeStudentsCount={totalCollegeStudents}
+              mappedStudents={mappedStudents}
+              publishedCount={publishedCount}
+              draftCount={draftCount}
+              activeTestsCount={activeTestsCount}
+              onManageGroups={() => setActiveTab('Manage Groups')}
+              onCreateTest={handleCreateDraft}
+              onViewSubmissions={setSelectedTestForSubmissions}
+              onNavigateToStudents={(filter) => {
+                setActiveTab('Students');
+              }}
+            />
+          )}
+        </div>
       </main>
 
       {/* Modals */}

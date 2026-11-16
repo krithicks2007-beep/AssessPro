@@ -213,29 +213,31 @@ router.post('/api/admin/reset-database', verifyAuth, requireRoles('admin'), asyn
 });
 
 
-// Ban a user
-router.post('/api/admin/ban', verifyAuth, requireRoles('admin'), async (req, res) => {
+// Ban a user (allowed for admin and staff)
+router.post('/api/admin/ban', verifyAuth, requireRoles('admin', 'staff'), async (req, res) => {
   const { email, ban_type } = req.body;
   if (!email || !ban_type) return res.status(400).json({ error: 'Missing email or ban_type' });
   
   try {
+    const cleanEmail = email.toLowerCase().trim();
     const { error: banErr } = await supabase
       .from('banned_users')
-      .upsert({ email: email.toLowerCase().trim(), ban_type, request_state: 'none' });
+      .upsert({ email: cleanEmail, ban_type, request_state: 'none' });
       
     if (banErr) throw banErr;
 
     if (ban_type === 'suspended_hard') {
-      // Find user ID
-      const { data: user } = await supabase.from('users').select('id').eq('mailid', email).maybeSingle();
-      if (user) {
-        // We delete from public.users which triggers CASCADE to students and test_submissions
-        // But the user remains in auth.users so they can login and see the banned screen!
+      // Permanently wipe all data for this student from the database
+      const { data: user } = await supabase.from('users').select('id').eq('mailid', cleanEmail).maybeSingle();
+      if (user?.id) {
+        await supabase.from('test_submissions').delete().eq('student_email', cleanEmail);
+        await supabase.from('task_submissions').delete().eq('student_id', user.id);
+        await supabase.from('students').delete().eq('id', user.id);
         await supabase.from('users').delete().eq('id', user.id);
       }
     }
     
-    res.json({ message: 'User banned successfully' });
+    res.json({ message: 'User banned and data wiped successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to ban user', details: err.message });
   }
