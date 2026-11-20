@@ -9,7 +9,9 @@ import {
   Bell,
   Building2,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Menu,
+  X
 } from 'lucide-react';
 import api from '../../api';
 import { getSupabaseClient } from '../../supabaseClient';
@@ -31,6 +33,7 @@ import Profile from './Profile';
  */
 export default function StudentLayout({ user, studentProfile, onRequestEditProfile, onSignOut }) {
   const [activeTab, setActiveTab] = useState('Dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [groups, setGroups] = useState([]);
   const [tests, setTests] = useState([]);
   const [studentSubmissions, setStudentSubmissions] = useState([]);
@@ -464,16 +467,33 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
 
   return (
     <div className="layout-wrapper">
+      {/* Mobile Backdrop Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Student Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">
-            <span style={{ fontSize: '1.1rem' }}>🎓</span>
+      <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '0.5rem' }}>
+          <div className="sidebar-logo" style={{ paddingBottom: 0 }}>
+            <div className="sidebar-logo-icon">
+              <span style={{ fontSize: '1.1rem' }}>🎓</span>
+            </div>
+            <div className="sidebar-logo-text">
+              <span className="sidebar-logo-title">AssessPro</span>
+              <span className="sidebar-logo-sub">Online Test Platform</span>
+            </div>
           </div>
-          <div className="sidebar-logo-text">
-            <span className="sidebar-logo-title">AssessPro</span>
-            <span className="sidebar-logo-sub">Online Test Platform</span>
-          </div>
+          <button
+            className="sidebar-mobile-close-btn"
+            onClick={() => setMobileMenuOpen(false)}
+            title="Close Menu"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         {/* Profile in Sidebar */}
@@ -492,7 +512,10 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
             <button
               key={label}
               className={`nav-link ${activeTab === label ? 'active' : ''}`}
-              onClick={() => setActiveTab(label)}
+              onClick={() => {
+                setActiveTab(label);
+                setMobileMenuOpen(false);
+              }}
             >
               <Icon size={17} />
               <span>{label}</span>
@@ -513,8 +536,30 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         {/* Top Header */}
         <header className="top-header">
           <div className="header-left">
-            <h1 className="header-title">Student Dashboard</h1>
-            <p className="header-greeting">Welcome, {studentName}! Personal assessment and progress portal.</p>
+            <button
+              type="button"
+              className={`mobile-menu-toggle-btn ${mobileMenuOpen ? 'is-open' : ''}`}
+              onClick={() => setMobileMenuOpen(prev => !prev)}
+              aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              title={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+            >
+              {mobileMenuOpen ? (
+                <X size={20} strokeWidth={2.4} />
+              ) : (
+                <div className="hamburger-lines">
+                  <span className="line line-1" />
+                  <span className="line line-2" />
+                  <span className="line line-3" />
+                </div>
+              )}
+              {unreadCount > 0 && !mobileMenuOpen && (
+                <span className="mobile-menu-badge-dot" />
+              )}
+            </button>
+            <div className="header-title-box">
+              <h1 className="header-title">Student Dashboard</h1>
+              <p className="header-greeting">Welcome, {studentName}!</p>
+            </div>
           </div>
 
           <div className="header-right">

@@ -1628,43 +1628,98 @@ body {
    Staff Mobile View & Responsive Tasks Enhancements
    ========================================================================= */
 
-/* Mobile Menu Toggle Button in Header */
+/* =========================================================================
+   Mobile View Typography & Responsive Navigation Styling
+   ========================================================================= */
+
+/* Modern Polished Mobile Menu Toggle Button (Hamburger) */
 .mobile-menu-toggle-btn {
   display: none;
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
   color: #1e293b;
-  border-radius: 8px;
-  width: 38px;
-  height: 38px;
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
 }
 
 .mobile-menu-toggle-btn:hover {
-  background: #e2e8f0;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.mobile-menu-toggle-btn:active {
+  transform: scale(0.92);
+  background: #f1f5f9;
+}
+
+.mobile-menu-toggle-btn.is-open {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d72fe;
+  box-shadow: 0 0 0 3px rgba(29, 114, 254, 0.15);
+}
+
+/* Crisp 3-bar hamburger lines */
+.hamburger-lines {
+  width: 18px;
+  height: 13px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hamburger-lines .line {
+  display: block;
+  height: 2.2px;
+  width: 100%;
+  background-color: currentColor;
+  border-radius: 9999px;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.mobile-menu-badge-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 1.5px solid #ffffff;
 }
 
 /* Sidebar Mobile Close Button */
 .sidebar-mobile-close-btn {
   display: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
   cursor: pointer;
-  padding: 6px;
+  width: 34px;
+  height: 34px;
   border-radius: 8px;
   align-items: center;
   justify-content: center;
+  transition: all 0.15s ease;
 }
 
-.sidebar-mobile-close-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+.sidebar-mobile-close-btn:hover,
+.sidebar-mobile-close-btn:active {
+  background: rgba(255, 255, 255, 0.2);
   color: #ffffff;
+  transform: scale(0.95);
 }
 
 /* Sidebar Backdrop */
@@ -1742,8 +1797,18 @@ body {
   transform: none;
 }
 
-/* Responsive Media Queries for Mobile Screens */
+/* =========================================================================
+   Responsive Media Queries for Mobile Screens (Adjusting Font Sizes & Layout)
+   ========================================================================= */
 @media (max-width: 768px) {
+  html {
+    font-size: 13.5px !important; /* Systematically scales down all rem-based typography */
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
   .layout-wrapper {
     flex-direction: column !important;
   }
@@ -1784,37 +1849,118 @@ body {
     padding-bottom: 74px !important; /* space for mobile bottom nav */
   }
 
+  /* Compact Mobile Header */
   .top-header {
-    padding: 0.75rem 1rem !important;
+    padding: 0.6rem 0.85rem !important;
+    min-height: 54px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 100 !important;
   }
 
-  .top-header .header-title {
-    font-size: 1.1rem !important;
+  .header-left {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.65rem !important;
+    min-width: 0 !important;
+    flex: 1 !important;
   }
 
-  .top-header .header-greeting {
-    font-size: 0.74rem !important;
+  .header-title-box {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
   }
+
+  .header-title {
+    font-size: 0.96rem !important;
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .header-greeting {
+    font-size: 0.68rem !important;
+    line-height: 1.15 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    margin-top: 2px !important;
+  }
+
+  .header-right {
+    gap: 0.45rem !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Hide long department text on mobile so header is never squeezed */
+  .dept-pill {
+    display: none !important;
+  }
+
+  /* Headings on mobile */
+  h1 { font-size: 1.12rem !important; }
+  h2 { font-size: 1.02rem !important; }
+  h3 { font-size: 0.9rem !important; }
+  h4 { font-size: 0.82rem !important; }
 
   .staff-mobile-bottom-nav {
     display: flex !important;
   }
 
   .dashboard-content {
-    padding: 0.85rem !important;
+    padding: 0.75rem !important;
   }
 
-  .tasks-header-card {
-    padding: 1rem !important;
+  /* Group & Status Filter Toolbars in Tasks and Tests */
+  .staff-tasks-container > div:first-child,
+  .staff-tests-container > div:first-child {
+    padding: 0.65rem 0.85rem !important;
+    gap: 0.55rem !important;
+    margin-bottom: 0.95rem !important;
+    border-radius: 12px !important;
   }
 
-  .task-cards-grid {
+  .btn-create-test {
+    font-size: 0.76rem !important;
+    padding: 0.42rem 0.8rem !important;
+  }
+
+  /* Task & Test Cards Grid */
+  .task-cards-grid,
+  .tests-grid {
     grid-template-columns: 1fr !important;
-    gap: 1.1rem !important;
+    gap: 1rem !important;
   }
 
-  .task-item-card {
-    padding: 1.1rem !important;
+  .task-item-card,
+  .test-card {
+    padding: 0.95rem !important;
+    border-radius: 14px !important;
+  }
+
+  .task-item-card h3,
+  .test-card h3 {
+    font-size: 0.92rem !important;
+    line-height: 1.35 !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .task-floating-red-badge {
+    font-size: 0.66rem !important;
+    padding: 2px 8px !important;
+    top: -10px !important;
+    left: 12px !important;
+  }
+
+  .btn-mark-submissions {
+    font-size: 0.8rem !important;
+    padding: 0.55rem 0.85rem !important;
+    min-height: 40px !important;
+    border-radius: 9px !important;
   }
 
   /* Full Screen Task Submissions Modal on Mobile Devices */
@@ -1830,7 +1976,39 @@ body {
     border-radius: 0 !important;
     border: none !important;
   }
+
+  .task-submissions-modal-content h2 {
+    font-size: 1rem !important;
+  }
+
+  .task-submissions-modal-content h3 {
+    font-size: 0.88rem !important;
+  }
 }
+
+@media (max-width: 480px) {
+  html {
+    font-size: 13px !important; /* Slightly more compact for smaller phones */
+  }
+
+  .top-header {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  .top-header .header-title {
+    font-size: 0.9rem !important;
+  }
+
+  .top-header .header-greeting {
+    display: none !important; /* Keep header super sleek on narrow screens */
+  }
+
+  .task-item-card,
+  .test-card {
+    padding: 0.85rem !important;
+  }
+}
+
 
 
 

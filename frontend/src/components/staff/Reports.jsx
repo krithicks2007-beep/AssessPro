@@ -1,13 +1,475 @@
-import React, { useState, useEffect } from 'react';
-import { Download, FileText, CheckSquare, Search, Loader } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Download, FileText, CheckSquare, Loader, X, ChevronRight } from 'lucide-react';
 import { getSupabaseClient } from '../../supabaseClient';
-import { parseBitEmail } from '../../utils/studentParser';
+import api from '../../api';
+import * as XLSX from 'xlsx';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function resolveGroupNumber(item, groups) {
+  if (!item) return 9999;
+  const grp = groups.find(g => String(g.id) === String(item.group_id));
+  return grp?.group_number ?? 9999;
+}
+
+function sortByGroup(items, groups) {
+  return [...items].sort((a, b) => resolveGroupNumber(a, groups) - resolveGroupNumber(b, groups));
+}
+
+function getGroupName(item, groups) {
+  const grp = groups.find(g => String(g.id) === String(item.group_id));
+  return grp ? `Group ${grp.group_number}: ${grp.name}` : 'Unknown Group';
+}
+
+// studentRegMap: Map<id_or_email, reg_no> — maps student id (UUID) or email (lowercase) to real reg_no
+function resolveTestStudent(sub, studentRegMap = new Map()) {
+  const email = (sub.student_email || sub.email || '').toLowerCase().trim();
+  const name = sub.student_name || email.split('@')[0].replace(/\./g, ' ').toUpperCase() || 'Student';
+  // Priority: student_id lookup > email lookup > sub.student_regno > blank
+  const reg = (sub.student_id ? studentRegMap.get(sub.student_id) : null)
+    || (email ? studentRegMap.get(email) : null)
+    || sub.student_regno
+    || '';
+  const pct = sub.percentage != null
+    ? Math.round(Number(sub.percentage))
+    : (sub.max_score > 0 ? Math.round((Number(sub.score) / Number(sub.max_score)) * 100) : 0);
+  return { name, reg, email, mark: pct + '%' };
+}
+
+function resolveTaskStudent(sub, maxScore, studentRegMap = new Map()) {
+  const email = (sub.users?.mailid || sub.users?.email || '').toLowerCase().trim();
+  const name = sub.users?.name || email.split('@')[0].replace(/\./g, ' ').toUpperCase() || 'Student';
+  // Priority: student_id lookup > sub.users?.id lookup > email lookup > users.reg_no > blank
+  const reg = (sub.student_id ? studentRegMap.get(sub.student_id) : null)
+    || (sub.users?.id ? studentRegMap.get(sub.users.id) : null)
+    || (email ? studentRegMap.get(email) : null)
+    || sub.users?.reg_no
+    || '';
+  const max = maxScore || 100;
+  const mark = sub.score != null ? (max > 0 ? Math.round((Number(sub.score) / max) * 100) : 0) + '%' : 'Ungraded';
+  return { name, reg, email, mark };
+}
+
+// ─── Excel generation ─────────────────────────────────────────────────────────
+
+function buildExcelWorkbook(selectedTests, selectedTasks, testSubmissions, taskSubmissions, groups, mode, emailRegMap = new Map()) {
+  const wb = XLSX.utils.book_new();
+
+  // ── TESTS SHEET ──────────────────────────────────────────────────────────────
+  if ((mode === 'all' || mode === 'tests') && selectedTests.length > 0) {
+    const rows = [
+      ['TESTS COMPLETION REPORT', '', '', '', '', ''],
+      ['', '', '', '', '', ''],
+      ['Group', 'Test Name', 'Total Submissions', 'Student Name', 'Reg No', 'Mark'],
+    ];
+
+    sortByGroup(selectedTests, groups).forEach(test => {
+      const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
+      const grpName = getGroupName(test, groups);
+
+      // Summary row
+      rows.push([grpName, test.title || 'Untitled', subs.length, '', '', '']);
+
+      // Student rows
+      subs.forEach(sub => {
+        const { name, reg, mark } = resolveTestStudent(sub, emailRegMap);
+        rows.push(['', '', '', name, reg, mark]);
+      });
+
+      rows.push(['', '', '', '', '', '']); // blank spacer
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Column widths
+    ws['!cols'] = [{ wch: 28 }, { wch: 32 }, { wch: 20 }, { wch: 26 }, { wch: 16 }, { wch: 12 }];
+
+    // Style header row (row index 0 = A1)
+    const headerCells = ['A1'];
+    headerCells.forEach(cell => {
+      if (ws[cell]) ws[cell].s = { font: { bold: true, sz: 13 }, fill: { fgColor: { rgb: 'EFF6FF' } } };
+    });
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Tests');
+  }
+
+  // ── TASKS SHEET ──────────────────────────────────────────────────────────────
+  if ((mode === 'all' || mode === 'tasks') && selectedTasks.length > 0) {
+    const rows = [
+      ['TASKS COMPLETION REPORT', '', '', '', '', ''],
+      ['', '', '', '', '', ''],
+      ['Group', 'Task Name', 'Total Submissions', 'Student Name', 'Reg No', 'Mark'],
+    ];
+
+    sortByGroup(selectedTasks, groups).forEach(task => {
+      const subs = taskSubmissions.filter(s => String(s.task_id) === String(task.id));
+      const grpName = getGroupName(task, groups);
+
+      rows.push([grpName, task.title || 'Untitled', subs.length, '', '', '']);
+
+      subs.forEach(sub => {
+        const { name, reg, mark } = resolveTaskStudent(sub, task.max_score, emailRegMap);
+        rows.push(['', '', '', name, reg, mark]);
+      });
+
+      rows.push(['', '', '', '', '', '']);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 28 }, { wch: 32 }, { wch: 20 }, { wch: 26 }, { wch: 16 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+  }
+
+  return wb;
+}
+
+function downloadWorkbook(wb, filename) {
+  XLSX.writeFile(wb, filename + '.xlsx');
+}
+
+// ─── Download Modal ───────────────────────────────────────────────────────────
+
+function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSubmissions, emailRegMap }) {
+  // step: 'pick' | 'customize'
+  const [step, setStep] = useState('pick');
+  const [mode, setMode] = useState(null); // 'all' | 'tests' | 'tasks' | 'customize'
+  const [customizeTab, setCustomizeTab] = useState('tests'); // which side to show in customize
+  const [selectedTestIds, setSelectedTestIds] = useState(new Set());
+  const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
+  const overlayRef = useRef(null);
+
+  const sortedTests = sortByGroup(tests, groups);
+  const sortedTasks = sortByGroup(tasks, groups);
+
+  function toggleTest(id) {
+    setSelectedTestIds(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  }
+
+  function toggleTask(id) {
+    setSelectedTaskIds(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  }
+
+  function selectAll(type) {
+    if (type === 'tests') setSelectedTestIds(new Set(sortedTests.map(t => t.id)));
+    else setSelectedTaskIds(new Set(sortedTasks.map(t => t.id)));
+  }
+
+  function clearAll(type) {
+    if (type === 'tests') setSelectedTestIds(new Set());
+    else setSelectedTaskIds(new Set());
+  }
+
+  function handleQuickDownload(m) {
+    const selTests = m === 'tasks' ? [] : sortedTests;
+    const selTasks = m === 'tests' ? [] : sortedTasks;
+    const wb = buildExcelWorkbook(selTests, selTasks, testSubmissions, taskSubmissions, groups, m, emailRegMap);
+    const hasSheets = wb.SheetNames.length > 0;
+    if (!hasSheets) { alert('No data available to export.'); return; }
+    downloadWorkbook(wb, `AssessPro_${m === 'all' ? 'All' : m === 'tests' ? 'Tests' : 'Tasks'}_Report`);
+    onClose();
+  }
+
+  function handleCustomizeDownload() {
+    const selTests = sortedTests.filter(t => selectedTestIds.has(t.id));
+    const selTasks = sortedTasks.filter(t => selectedTaskIds.has(t.id));
+    if (selTests.length === 0 && selTasks.length === 0) {
+      alert('Please select at least one test or task to export.');
+      return;
+    }
+    const mode = selTests.length > 0 && selTasks.length > 0 ? 'all' : selTests.length > 0 ? 'tests' : 'tasks';
+    const wb = buildExcelWorkbook(selTests, selTasks, testSubmissions, taskSubmissions, groups, mode, emailRegMap);
+    downloadWorkbook(wb, 'AssessPro_Custom_Report');
+    onClose();
+  }
+
+  // Group items for display
+  function groupedItems(items) {
+    const map = new Map();
+    items.forEach(item => {
+      const grp = groups.find(g => String(g.id) === String(item.group_id));
+      const grpLabel = grp ? `Group ${grp.group_number}: ${grp.name}` : 'Unknown Group';
+      const grpNum = grp?.group_number ?? 9999;
+      if (!map.has(grpLabel)) map.set(grpLabel, { label: grpLabel, num: grpNum, items: [] });
+      map.get(grpLabel).items.push(item);
+    });
+    return Array.from(map.values()).sort((a, b) => a.num - b.num);
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={e => { if (e.target === overlayRef.current) onClose(); }}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(15,23,42,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 9999, padding: '1rem'
+      }}
+    >
+      <div style={{
+        background: '#ffffff', borderRadius: '16px',
+        width: '100%', maxWidth: step === 'customize' ? '680px' : '480px',
+        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        border: '1px solid #e2e8f0',
+        overflow: 'hidden'
+      }}>
+        {/* Modal Header */}
+        <div style={{
+          padding: '1.1rem 1.4rem',
+          borderBottom: '1px solid #f1f5f9',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+        }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
+              {step === 'pick' ? 'Download Report' : 'Customize Export'}
+            </div>
+            <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '2px' }}>
+              {step === 'pick'
+                ? 'Choose what to include in the Excel file.'
+                : 'Select the specific tests and tasks to export.'}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'none', border: '1px solid #e2e8f0', borderRadius: '8px',
+            cursor: 'pointer', color: '#475569', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px'
+          }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+
+          {/* ─ STEP 1: Pick mode ─ */}
+          {step === 'pick' && (
+            <div style={{ padding: '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {[
+                { key: 'all', label: 'All', desc: 'Tests + Tasks — all submissions in one file.' },
+                { key: 'tests', label: 'Tests Only', desc: 'Only test completion data.' },
+                { key: 'tasks', label: 'Tasks Only', desc: 'Only task submission data.' },
+                { key: 'customize', label: 'Customize', desc: 'Hand-pick specific tests or tasks.' },
+              ].map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => {
+                    if (opt.key === 'customize') { setStep('customize'); return; }
+                    handleQuickDownload(opt.key);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '0.9rem 1rem',
+                    borderRadius: '10px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    cursor: 'pointer', textAlign: 'left', width: '100%',
+                    transition: 'border-color 0.15s, background 0.15s'
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#94a3b8'; e.currentTarget.style.background = '#f8fafc'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = '#ffffff'; }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', marginBottom: '2px' }}>
+                      {opt.label}
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: '#64748b' }}>{opt.desc}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#475569', fontSize: '0.78rem', fontWeight: 600, flexShrink: 0 }}>
+                    {opt.key === 'customize' ? (
+                      <ChevronRight size={16} />
+                    ) : (
+                      <Download size={15} />
+                    )}
+                    {opt.key !== 'customize' && 'Download'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* ─ STEP 2: Customize ─ */}
+          {step === 'customize' && (
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              {/* Sub-tab switcher */}
+              <div style={{
+                display: 'flex', gap: '0',
+                borderBottom: '1px solid #f1f5f9',
+                padding: '0 1.4rem'
+              }}>
+                {['tests', 'tasks'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setCustomizeTab(tab)}
+                    style={{
+                      background: 'none', border: 'none',
+                      padding: '0.75rem 1rem',
+                      fontWeight: 700, fontSize: '0.83rem',
+                      cursor: 'pointer',
+                      color: customizeTab === tab ? '#1d72fe' : '#64748b',
+                      borderBottom: customizeTab === tab ? '2px solid #1d72fe' : '2px solid transparent',
+                      marginBottom: '-1px'
+                    }}
+                  >
+                    {tab === 'tests' ? <><FileText size={14} style={{ marginRight: 5, verticalAlign: -2 }} />Tests {selectedTestIds.size > 0 ? `(${selectedTestIds.size})` : ''}</>
+                      : <><CheckSquare size={14} style={{ marginRight: 5, verticalAlign: -2 }} />Tasks {selectedTaskIds.size > 0 ? `(${selectedTaskIds.size})` : ''}</>}
+                  </button>
+                ))}
+              </div>
+
+              {/* Content */}
+              <div style={{ padding: '1rem 1.4rem', flex: 1, overflowY: 'auto' }}>
+                {customizeTab === 'tests' && (
+                  <CustomizePanel
+                    items={sortedTests}
+                    selectedIds={selectedTestIds}
+                    onToggle={toggleTest}
+                    onSelectAll={() => selectAll('tests')}
+                    onClearAll={() => clearAll('tests')}
+                    groups={groups}
+                    groupedFn={groupedItems}
+                    type="test"
+                    submissions={testSubmissions}
+                    subsField="test_id"
+                  />
+                )}
+                {customizeTab === 'tasks' && (
+                  <CustomizePanel
+                    items={sortedTasks}
+                    selectedIds={selectedTaskIds}
+                    onToggle={toggleTask}
+                    onSelectAll={() => selectAll('tasks')}
+                    onClearAll={() => clearAll('tasks')}
+                    groups={groups}
+                    groupedFn={groupedItems}
+                    type="task"
+                    submissions={taskSubmissions}
+                    subsField="task_id"
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {step === 'customize' && (
+          <div style={{
+            padding: '0.9rem 1.4rem',
+            borderTop: '1px solid #f1f5f9',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem'
+          }}>
+            <button
+              onClick={() => setStep('pick')}
+              style={{
+                background: 'none', border: '1px solid #e2e8f0',
+                borderRadius: '8px', padding: '0.5rem 1rem',
+                fontSize: '0.82rem', fontWeight: 600, color: '#475569', cursor: 'pointer'
+              }}
+            >
+              ← Back
+            </button>
+            <div style={{ fontSize: '0.76rem', color: '#94a3b8' }}>
+              {selectedTestIds.size} test{selectedTestIds.size !== 1 ? 's' : ''} · {selectedTaskIds.size} task{selectedTaskIds.size !== 1 ? 's' : ''} selected
+            </div>
+            <button
+              onClick={handleCustomizeDownload}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                background: '#1d72fe', color: '#ffffff',
+                border: 'none', borderRadius: '8px',
+                padding: '0.55rem 1.1rem', fontSize: '0.84rem', fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              <Download size={15} />
+              Export Excel
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CustomizePanel({ items, selectedIds, onToggle, onSelectAll, onClearAll, groups, groupedFn, type, submissions, subsField }) {
+  const grouped = groupedFn(items);
+
+  if (items.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', color: '#94a3b8', padding: '2rem 0', fontSize: '0.85rem' }}>
+        No {type}s available.
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginBottom: '0.85rem' }}>
+        <button onClick={onSelectAll} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.3rem 0.7rem', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>Select all</button>
+        <button onClick={onClearAll} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.3rem 0.7rem', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>Clear</button>
+      </div>
+      {grouped.map(grp => (
+        <div key={grp.label} style={{ marginBottom: '1.1rem' }}>
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.45rem' }}>
+            {grp.label}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+            {grp.items.map(item => {
+              const count = submissions.filter(s => String(s[subsField]) === String(item.id)).length;
+              const checked = selectedIds.has(item.id);
+              return (
+                <label
+                  key={item.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.65rem',
+                    padding: '0.6rem 0.8rem',
+                    border: `1px solid ${checked ? '#bfdbfe' : '#e2e8f0'}`,
+                    background: checked ? '#f0f7ff' : '#fafafa',
+                    borderRadius: '8px', cursor: 'pointer',
+                    transition: 'all 0.12s ease'
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggle(item.id)}
+                    style={{ width: '15px', height: '15px', accentColor: '#1d72fe', cursor: 'pointer', flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {item.title || 'Untitled'}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f1f5f9', padding: '2px 7px', borderRadius: '20px', flexShrink: 0 }}>
+                    {count} sub{count !== 1 ? 's' : ''}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main Reports component ───────────────────────────────────────────────────
 
 export default function Reports({ groups, tests, tasks }) {
-  const [viewMode, setViewMode] = useState('tests'); // 'tests' | 'tasks'
+  const [viewMode, setViewMode] = useState('tests');
   const [testSubmissions, setTestSubmissions] = useState([]);
   const [taskSubmissions, setTaskSubmissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [emailRegMap, setEmailRegMap] = useState(new Map());
 
   useEffect(() => {
     const fetchData = async () => {
@@ -15,429 +477,269 @@ export default function Reports({ groups, tests, tasks }) {
       try {
         const supabase = getSupabaseClient();
         if (!supabase) return;
-        
-        // Batch fetch test submissions
+
         const testIds = tests.map(t => t.id);
-        let tSubs = [];
-        if (testIds.length > 0) {
-           const { data: tData } = await supabase.from('test_submissions').select('*').in('test_id', testIds);
-           tSubs = tData || [];
-        }
-
-        // Batch fetch task submissions
         const taskIds = tasks.map(t => t.id);
-        let tkSubs = [];
-        if (taskIds.length > 0) {
-           const { data: tkData } = await supabase.from('task_submissions').select('*, users(*)').in('task_id', taskIds);
-           tkSubs = tkData || [];
+
+        const [tSubsRes, tkSubsRes, studentsRes, usersRes] = await Promise.all([
+          testIds.length > 0
+            ? supabase.from('test_submissions').select('*').in('test_id', testIds)
+            : Promise.resolve({ data: [] }),
+          taskIds.length > 0
+            ? supabase.from('task_submissions').select('*, users(*)').in('task_id', taskIds)
+            : Promise.resolve({ data: [] }),
+          supabase.from('students').select('id, reg_no'),
+          supabase.from('users').select('id, mailid, name'),
+        ]);
+
+        const map = new Map();
+        // 1. Map by student ID UUID from students table
+        (studentsRes.data || []).forEach(s => {
+          if (s.id && s.reg_no) {
+            map.set(s.id, s.reg_no);
+          }
+        });
+
+        // 2. Map by user email and name using users table matched by ID
+        (usersRes.data || []).forEach(u => {
+          const reg = map.get(u.id);
+          if (u.mailid && reg) {
+            map.set(u.mailid.toLowerCase().trim(), reg);
+          }
+          if (u.name && reg) {
+            map.set(u.name.toLowerCase().trim(), reg);
+          }
+        });
+
+        // 3. Complement with api.getAllStudents() if available
+        try {
+          const allStuds = await api.getAllStudents();
+          if (Array.isArray(allStuds)) {
+            allStuds.forEach(s => {
+              if (s.reg_no) {
+                if (s.id && !map.has(s.id)) map.set(s.id, s.reg_no);
+                if (s.email && !map.has(s.email.toLowerCase().trim())) {
+                  map.set(s.email.toLowerCase().trim(), s.reg_no);
+                }
+              }
+            });
+          }
+        } catch (_apiErr) {
+          console.warn('api.getAllStudents supplementary note:', _apiErr);
         }
 
-        setTestSubmissions(tSubs);
-        setTaskSubmissions(tkSubs);
+        setEmailRegMap(map);
 
+        setTestSubmissions(tSubsRes.data || []);
+        setTaskSubmissions(tkSubsRes.data || []);
       } catch (err) {
-         console.error('Error fetching reports data:', err);
+        console.error('Error fetching reports data:', err);
       } finally {
-         setLoading(false);
+        setLoading(false);
       }
     };
     fetchData();
   }, [tests, tasks]);
 
-  const downloadCSV = (group, isTestsMode) => {
-     let rows = [];
-     
-     if (isTestsMode) {
-        const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
-        rows.push(['Test Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
-        
-        groupTests.forEach(test => {
-           const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
-           subs.forEach(s => {
-              const email = s.student_email || s.email || '';
-              const parsed = parseBitEmail(email);
-              const name = s.student_name || parsed?.formattedName || 'Student';
-              const reg = s.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-              const markPct = s.percentage != null ? Math.round(Number(s.percentage)) : (s.max_score > 0 ? Math.round((Number(s.score) / Number(s.max_score)) * 100) : 0);
-              
-              // Quote strings to prevent CSV breaking on commas
-              rows.push([
-                 `"${test.title || 'Untitled'}"`,
-                 `"${name}"`,
-                 `"${email}"`,
-                 `"${reg}"`,
-                 `"${markPct}%"`
-              ]);
-           });
-        });
-     } else {
-        const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
-        rows.push(['Task Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
-        
-        groupTasks.forEach(task => {
-           const subs = taskSubmissions.filter(s => String(s.task_id) === String(task.id));
-           subs.forEach(s => {
-              const studentEmail = s.users?.mailid || s.users?.email || s.student_id || 'Unknown';
-              const parsed = parseBitEmail(studentEmail);
-              const name = s.users?.name || parsed?.formattedName || 'Student';
-              const reg = parsed?.predictedRegNo || (studentEmail.includes('@') ? (studentEmail.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-              
-              const max = task.max_score || 100;
-              const mark = s.score != null ? `${max > 0 ? Math.round((Number(s.score) / max) * 100) : 0}%` : 'Ungraded';
-              
-              rows.push([
-                 `"${task.title || 'Untitled'}"`,
-                 `"${name}"`,
-                 `"${studentEmail}"`,
-                 `"${reg}"`,
-                 `"${mark}"`
-              ]);
-           });
-        });
-     }
-     
-     if (rows.length === 1) {
-        alert('No data to export for this group yet.');
-        return;
-     }
-     
-     const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-     const encodedUri = encodeURI(csvContent);
-     const link = document.createElement("a");
-     link.setAttribute("href", encodedUri);
-     link.setAttribute("download", `${group.name || 'Group'}_${isTestsMode ? 'Tests' : 'Tasks'}_Report.csv`);
-     document.body.appendChild(link);
-     link.click();
-     document.body.removeChild(link);
-  };
-
-  const downloadAllCSV = () => {
-     let rows = [];
-     const isTestsMode = viewMode === 'tests';
-     
-     if (isTestsMode) {
-        rows.push(['Group Name', 'Test Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
-        
-        groups.forEach(group => {
-           const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
-           groupTests.forEach(test => {
-              const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
-              subs.forEach(s => {
-                 const email = s.student_email || s.email || '';
-                 const parsed = parseBitEmail(email);
-                 const name = s.student_name || parsed?.formattedName || 'Student';
-                 const reg = s.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-                 const markPct = s.percentage != null ? Math.round(Number(s.percentage)) : (s.max_score > 0 ? Math.round((Number(s.score) / Number(s.max_score)) * 100) : 0);
-                 
-                 rows.push([
-                    `"${group.name || 'Unnamed Group'}"`,
-                    `"${test.title || 'Untitled'}"`,
-                    `"${name}"`,
-                    `"${email}"`,
-                    `"${reg}"`,
-                    `"${markPct}%"`
-                 ]);
-              });
-           });
-        });
-     } else {
-        rows.push(['Group Name', 'Task Name', 'Student Name', 'Email', 'Reg No', 'Mark']);
-        
-        groups.forEach(group => {
-           const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
-           groupTasks.forEach(task => {
-              const subs = taskSubmissions.filter(s => String(s.task_id) === String(task.id));
-              subs.forEach(s => {
-                 const email = s.users?.mailid || s.users?.email || s.student_id || '';
-                 const parsed = parseBitEmail(email);
-                 const name = s.users?.name || parsed?.formattedName || 'Student';
-                 const reg = parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-                 
-                 const max = task.max_score || 100;
-                 const mark = s.score != null ? `${max > 0 ? Math.round((Number(s.score) / max) * 100) : 0}%` : 'Ungraded';
-                 
-                 rows.push([
-                    `"${group.name || 'Unnamed Group'}"`,
-                    `"${task.title || 'Untitled'}"`,
-                    `"${name}"`,
-                    `"${email}"`,
-                    `"${reg}"`,
-                    `"${mark}"`
-                 ]);
-              });
-           });
-        });
-     }
-     
-     if (rows.length === 1) {
-        alert('No data to export.');
-        return;
-     }
-     
-     const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
-     const encodedUri = encodeURI(csvContent);
-     const link = document.createElement("a");
-     link.setAttribute("href", encodedUri);
-     link.setAttribute("download", `All_Groups_${isTestsMode ? 'Tests' : 'Tasks'}_Report.csv`);
-     document.body.appendChild(link);
-     link.click();
-     document.body.removeChild(link);
-  };
+  const sortedGroups = [...groups].sort((a, b) => (a.group_number ?? 9999) - (b.group_number ?? 9999));
 
   return (
     <div className="dashboard-content">
+      {/* Download modal */}
+      {showDownloadModal && (
+        <DownloadModal
+          onClose={() => setShowDownloadModal(false)}
+          tests={tests}
+          tasks={tasks}
+          groups={groups}
+          testSubmissions={testSubmissions}
+          taskSubmissions={taskSubmissions}
+          emailRegMap={emailRegMap}
+        />
+      )}
+
+      {/* Header bar */}
       <div style={{
         background: '#ffffff',
-        padding: '1.25rem 1.75rem',
-        borderRadius: '16px',
+        padding: '1.1rem 1.5rem',
+        borderRadius: '14px',
         border: '1px solid #e5e7eb',
-        marginBottom: '1.5rem',
+        marginBottom: '1.35rem',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+        flexWrap: 'wrap',
+        gap: '0.75rem'
       }}>
         <div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
             Performance Reports
           </h2>
-          <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '0.25rem 0 0' }}>
-            Download detailed CSV reports for your groups. Data includes all student submissions.
+          <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>
+            View completion data per group and export to Excel.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          {/* View Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* View toggle */}
           <div style={{
-            display: 'flex',
-            background: '#f1f5f9',
-            padding: '0.35rem',
-            borderRadius: '12px',
-            gap: '0.35rem'
+            display: 'flex', background: '#f1f5f9',
+            padding: '0.3rem', borderRadius: '10px', gap: '0.25rem'
           }}>
-            <button
-              onClick={() => setViewMode('tests')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: viewMode === 'tests' ? '#1d72fe' : 'transparent',
-                color: viewMode === 'tests' ? '#ffffff' : '#64748b',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                boxShadow: viewMode === 'tests' ? '0 2px 8px rgba(29, 114, 254, 0.3)' : 'none',
-                transition: 'all 0.2s'
-              }}
-            >
-              <FileText size={16} />
-              Tests
-            </button>
-            <button
-              onClick={() => setViewMode('tasks')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.5rem 1.25rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: viewMode === 'tasks' ? '#1d72fe' : 'transparent',
-                color: viewMode === 'tasks' ? '#ffffff' : '#64748b',
-                fontWeight: 600,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                boxShadow: viewMode === 'tasks' ? '0 2px 8px rgba(29, 114, 254, 0.3)' : 'none',
-                transition: 'all 0.2s'
-              }}
-            >
-              <CheckSquare size={16} />
-              Tasks
-            </button>
+            {['tests', 'tasks'].map(m => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.42rem 1rem',
+                  borderRadius: '7px', border: 'none',
+                  background: viewMode === m ? '#ffffff' : 'transparent',
+                  color: viewMode === m ? '#0f172a' : '#64748b',
+                  fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
+                  boxShadow: viewMode === m ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                  transition: 'all 0.15s'
+                }}
+              >
+                {m === 'tests' ? <FileText size={15} /> : <CheckSquare size={15} />}
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </button>
+            ))}
           </div>
 
+          {/* Download button */}
           <button
-             onClick={downloadAllCSV}
-             style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                padding: '0.75rem 1.25rem',
-                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 700,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(15, 23, 42, 0.2)',
-                transition: 'all 0.2s'
-             }}
+            onClick={() => setShowDownloadModal(true)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.5rem 1rem',
+              background: '#0f172a', color: '#ffffff',
+              border: 'none', borderRadius: '8px',
+              fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer'
+            }}
           >
-             <Download size={16} />
-             Download Complete CSV
+            <Download size={15} />
+            Download Report
           </button>
         </div>
       </div>
 
+      {/* Content */}
       {loading ? (
-        <div style={{ padding: '4rem', textAlign: 'center', color: '#64748b' }}>
-           <Loader className="spin" size={32} style={{ margin: '0 auto 1rem', display: 'block', color: '#cbd5e1' }} />
-           Loading report data...
+        <div style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8' }}>
+          <Loader size={28} style={{ margin: '0 auto 0.75rem', display: 'block', animation: 'spin 1s linear infinite' }} />
+          <div style={{ fontSize: '0.85rem' }}>Loading report data...</div>
         </div>
-      ) : groups.length === 0 ? (
-        <div style={{ padding: '4rem', textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: '16px', border: '1px solid #e5e7eb' }}>
-           No groups found. Please create a group first.
+      ) : sortedGroups.length === 0 ? (
+        <div style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', background: '#fff', borderRadius: '14px', border: '1px solid #e5e7eb', fontSize: '0.88rem' }}>
+          No groups found. Create a group first.
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: '1.5rem' }}>
-          {(() => {
-             const activeGroups = groups.filter(group => {
-                const isTestsMode = viewMode === 'tests';
-                const groupItems = isTestsMode ? tests.filter(t => t.group_id === group.id) : tasks.filter(t => t.group_id === group.id);
-                return groupItems.length > 0;
-             });
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {sortedGroups.map(group => {
+            const isTests = viewMode === 'tests';
+            const groupItems = isTests
+              ? tests.filter(t => String(t.group_id) === String(group.id))
+              : tasks.filter(t => String(t.group_id) === String(group.id));
 
-             if (activeGroups.length === 0) {
-                return (
-                   <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: '16px', border: '1px solid #e5e7eb' }}>
-                      No {viewMode} assigned to any group yet.
-                   </div>
-                );
-             }
+            if (groupItems.length === 0) return null;
 
-             return activeGroups.map(group => {
-                const isTestsMode = viewMode === 'tests';
-                const groupItems = isTestsMode ? tests.filter(t => t.group_id === group.id) : tasks.filter(t => t.group_id === group.id);
-             
-             return (
-                <div key={group.id} style={{ 
-                   background: '#ffffff', 
-                   borderRadius: '16px', 
-                   border: '1px solid #e2e8f0', 
-                   overflow: 'hidden',
-                   boxShadow: '0 4px 15px rgba(0,0,0,0.02)'
+            return (
+              <div key={group.id} style={{
+                background: '#ffffff', borderRadius: '14px',
+                border: '1px solid #e2e8f0', overflow: 'hidden'
+              }}>
+                {/* Group header */}
+                <div style={{
+                  padding: '0.9rem 1.25rem',
+                  background: '#f8fafc',
+                  borderBottom: '1px solid #e2e8f0',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
                 }}>
-                   {/* Group Header */}
-                   <div style={{ 
-                      padding: '1.25rem 1.5rem', 
-                      background: '#f8fafc', 
-                      borderBottom: '1px solid #e2e8f0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                   }}>
-                      <div>
-                         <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
-                            {group.name || 'Unnamed Group'}
-                         </h3>
-                         <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
-                            {group.category || 'Subject Group'}
-                         </span>
-                      </div>
-                      <button
-                         onClick={() => downloadCSV(group, isTestsMode)}
-                         style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.4rem',
-                            padding: '0.55rem 1.1rem',
-                            background: '#1e293b',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            fontWeight: 600,
-                            fontSize: '0.8rem',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 10px rgba(30, 41, 59, 0.15)'
-                         }}
-                      >
-                         <Download size={15} />
-                         Download as CSV
-                      </button>
-                   </div>
-
-                   {/* Group Content (Tests/Tasks) */}
-                   <div style={{ padding: '1.5rem' }}>
-                      {groupItems.length === 0 ? (
-                         <div style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>
-                            No {isTestsMode ? 'tests' : 'tasks'} assigned to this group yet.
-                         </div>
-                      ) : (
-                         <div style={{ display: 'grid', gap: '1.25rem' }}>
-                            {groupItems.map(item => {
-                               const subs = isTestsMode 
-                                  ? testSubmissions.filter(s => s.test_id === item.id)
-                                  : taskSubmissions.filter(s => s.task_id === item.id);
-
-                               return (
-                                  <div key={item.id} style={{ border: '1px solid #f1f5f9', borderRadius: '12px', padding: '1rem', background: '#fafaf9' }}>
-                                     <div style={{ fontWeight: 700, color: '#334155', fontSize: '0.95rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        {isTestsMode ? <FileText size={16} color="#1d72fe" /> : <CheckSquare size={16} color="#14b8a6" />}
-                                        {item.title}
-                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#e2e8f0', padding: '0.1rem 0.5rem', borderRadius: '12px', marginLeft: 'auto', fontWeight: 600 }}>
-                                           {subs.length} Submissions
-                                        </span>
-                                     </div>
-                                     
-                                     {subs.length === 0 ? (
-                                        <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                                           No students have submitted this yet.
-                                        </div>
-                                     ) : (
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.75rem' }}>
-                                           {subs.map(sub => {
-                                              let name = 'Unknown';
-                                              let mark = '0%';
-                                              let reg = '';
-
-                                              if (isTestsMode) {
-                                                 const email = sub.student_email || sub.email || '';
-                                                 const parsed = parseBitEmail(email);
-                                                 name = sub.student_name || parsed?.formattedName || 'Student';
-                                                 const pctVal = sub.percentage != null ? Math.round(Number(sub.percentage)) : (sub.max_score > 0 ? Math.round((Number(sub.score) / Number(sub.max_score)) * 100) : 0);
-                                                 mark = String(pctVal) + '%';
-                                                 reg = sub.student_regno || parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-                                              } else {
-                                                 const email = sub.users?.mailid || sub.users?.email || sub.student_id || 'Unknown';
-                                                 const parsed = parseBitEmail(email);
-                                                 name = sub.users?.name || parsed?.formattedName || 'Student';
-                                                 reg = parsed?.predictedRegNo || (email.includes('@') ? (email.split('@')[0].split('.')[1] || '').toUpperCase() : '');
-                                                 const max = item.max_score || 100;
-                                                 mark = sub.score != null ? String(max > 0 ? Math.round((Number(sub.score) / max) * 100) : 0) + '%' : 'Ungraded';
-                                              }
-
-                                              return (
-                                                 <div key={sub.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.5rem 0.75rem', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', overflow: 'hidden' }}>
-                                                       <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                          {name}
-                                                       </span>
-                                                       {reg && (
-                                                          <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{reg}</span>
-                                                       )}
-                                                    </div>
-                                                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isTestsMode ? '#1d72fe' : '#14b8a6', paddingLeft: '0.5rem' }}>
-                                                       {mark}
-                                                    </span>
-                                                 </div>
-                                              );
-                                           })}
-                                        </div>
-                                     )}
-                                  </div>
-                               );
-                            })}
-                         </div>
-                      )}
-                   </div>
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                      Group {group.group_number}: {group.name}
+                    </div>
+                    {group.category && (
+                      <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '1px' }}>{group.category}</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: '#64748b', fontWeight: 600 }}>
+                    {groupItems.length} {isTests ? 'test' : 'task'}{groupItems.length !== 1 ? 's' : ''}
+                  </div>
                 </div>
-             );
-          });
-          })()}
+
+                {/* Items list */}
+                <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {groupItems.map(item => {
+                    const subs = isTests
+                      ? testSubmissions.filter(s => String(s.test_id) === String(item.id))
+                      : taskSubmissions.filter(s => String(s.task_id) === String(item.id));
+
+                    return (
+                      <div key={item.id} style={{
+                        border: '1px solid #f1f5f9', borderRadius: '10px',
+                        padding: '0.85rem 1rem', background: '#fafafa'
+                      }}>
+                        {/* Item header */}
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          marginBottom: subs.length > 0 ? '0.75rem' : 0
+                        }}>
+                          {isTests
+                            ? <FileText size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                            : <CheckSquare size={15} color="#14b8a6" style={{ flexShrink: 0 }} />}
+                          <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.title}
+                          </span>
+                          <span style={{
+                            fontSize: '0.74rem', fontWeight: 700,
+                            color: subs.length > 0 ? '#059669' : '#94a3b8',
+                            background: subs.length > 0 ? '#ecfdf5' : '#f1f5f9',
+                            padding: '2px 9px', borderRadius: '20px', flexShrink: 0
+                          }}>
+                            {subs.length} completed
+                          </span>
+                        </div>
+
+                        {/* Student chips */}
+                        {subs.length === 0 ? (
+                          <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                            No submissions yet.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                            {subs.map(sub => {
+                              let name, mark;
+                              if (isTests) {
+                                const r = resolveTestStudent(sub, emailRegMap);
+                                name = r.name; mark = r.mark;
+                              } else {
+                                const r = resolveTaskStudent(sub, item.max_score, emailRegMap);
+                                name = r.name; mark = r.mark;
+                              }
+                              return (
+                                <div key={sub.id} style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                                  background: '#ffffff', border: '1px solid #e2e8f0',
+                                  borderRadius: '6px', padding: '0.28rem 0.65rem',
+                                  fontSize: '0.76rem'
+                                }}>
+                                  <span style={{ color: '#1e293b', fontWeight: 600 }}>{name}</span>
+                                  <span style={{ color: '#64748b' }}>·</span>
+                                  <span style={{ color: isTests ? '#1d72fe' : '#059669', fontWeight: 700 }}>{mark}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

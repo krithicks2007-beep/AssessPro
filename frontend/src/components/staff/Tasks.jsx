@@ -341,23 +341,15 @@ export default function Tasks({
                 style={{
                   padding: '0.35rem 0.7rem',
                   borderRadius: '6px',
-                  border: filterType === 'submitted' ? '1px solid #ef4444' : '1px solid #cbd5e1',
-                  background: filterType === 'submitted' ? '#fef2f2' : '#ffffff',
-                  color: filterType === 'submitted' ? '#dc2626' : '#64748b',
+                  border: filterType === 'submitted' ? '1px solid #1d72fe' : '1px solid #cbd5e1',
+                  background: filterType === 'submitted' ? '#eff6ff' : '#ffffff',
+                  color: filterType === 'submitted' ? '#1d72fe' : '#64748b',
                   fontSize: '0.76rem',
                   fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.3rem'
+                  cursor: 'pointer'
                 }}
               >
-                <span>Submitted</span>
-                {totalSubmittedAcrossTasks > 0 && (
-                  <span style={{ background: '#ef4444', color: '#fff', borderRadius: '10px', padding: '1px 5px', fontSize: '0.66rem' }}>
-                    {totalSubmittedAcrossTasks}
-                  </span>
-                )}
+                Submitted
               </button>
 
               {totalPendingAcrossTasks > 0 && (
@@ -532,6 +524,7 @@ export default function Tasks({
                     const hasSubmissions = (t.submissionsCount || 0) > 0;
                     const subsCount = t.submissionsCount || 0;
                     const pendingCount = t.pendingReviewCount || 0;
+                    const hasPending = pendingCount > 0;
 
                     return (
                       <div
@@ -540,20 +533,20 @@ export default function Tasks({
                         style={{
                           background: '#ffffff',
                           borderRadius: '16px',
-                          border: hasSubmissions ? '1.5px solid #fca5a5' : '1px solid #e5e7eb',
+                          border: hasPending ? '1.5px solid #fca5a5' : '1px solid #e5e7eb',
                           padding: '1.35rem',
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
-                          boxShadow: hasSubmissions ? '0 4px 14px rgba(239, 68, 68, 0.08)' : '0 2px 6px rgba(0,0,0,0.03)',
+                          boxShadow: hasPending ? '0 4px 14px rgba(239, 68, 68, 0.08)' : '0 2px 6px rgba(0,0,0,0.03)',
                           position: 'relative'
                         }}
                       >
-                        {/* 1. SOLID RED NOTIFICATION BADGE (Animation Removed) */}
-                        {hasSubmissions && (
+                        {/* 1. Red Pending Badge: only shown if students submitted and grading is not yet marked */}
+                        {hasPending && (
                           <div
                             className="task-floating-red-badge"
-                            title={`${subsCount} student${subsCount > 1 ? 's' : ''} submitted work`}
+                            title={`${pendingCount} submission${pendingCount > 1 ? 's' : ''} pending grading`}
                             style={{
                               position: 'absolute',
                               top: '-12px',
@@ -580,7 +573,7 @@ export default function Tasks({
                               background: '#ffffff',
                               display: 'inline-block'
                             }} />
-                            <span>{subsCount} {subsCount === 1 ? 'Student Submitted' : 'Students Submitted'}</span>
+                            <span>{pendingCount} Pending</span>
                           </div>
                         )}
 
@@ -676,46 +669,6 @@ export default function Tasks({
                             </span>
                           </div>
 
-                          {/* 2. Red Notification Banner Above Task Title */}
-                          {hasSubmissions && (
-                            <div style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '0.45rem',
-                              background: '#fef2f2',
-                              border: '1px solid #fecaca',
-                              color: '#dc2626',
-                              padding: '4px 10px',
-                              borderRadius: '8px',
-                              fontSize: '0.76rem',
-                              fontWeight: 700,
-                              marginBottom: '0.65rem',
-                              width: 'fit-content'
-                            }}>
-                              <span style={{
-                                width: '7px',
-                                height: '7px',
-                                borderRadius: '50%',
-                                background: '#ef4444',
-                                display: 'inline-block'
-                              }} />
-                              <span>{subsCount} {subsCount === 1 ? 'student submitted' : 'students submitted'}</span>
-                              {pendingCount > 0 && (
-                                <span style={{
-                                  background: '#dc2626',
-                                  color: '#ffffff',
-                                  padding: '1px 6px',
-                                  borderRadius: '10px',
-                                  fontSize: '0.68rem',
-                                  fontWeight: 800,
-                                  marginLeft: '0.2rem'
-                                }}>
-                                  {pendingCount} to mark
-                                </span>
-                              )}
-                            </div>
-                          )}
-
                           {/* Task Title */}
                           <h3 style={{
                             fontSize: '1.05rem',
@@ -802,6 +755,7 @@ export default function Tasks({
                           </div>
                         ) : (
                           <button
+                            className="btn-mark-submissions"
                             onClick={() => onViewSubmissions(t)}
                             style={{
                               width: '100%',

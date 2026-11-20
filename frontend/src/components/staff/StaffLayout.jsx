@@ -649,7 +649,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
               >
                 <Icon size={17} />
                 <span>{label}</span>
-                {label === 'Tasks' && totalTaskSubmissions > 0 && (
+                {label === 'Tasks' && totalPendingTaskSubmissions > 0 && (
                   <span style={{
                     marginLeft: 'auto',
                     background: '#ef4444',
@@ -660,7 +660,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
                     fontWeight: 800,
                     boxShadow: '0 2px 6px rgba(239, 68, 68, 0.4)'
                   }}>
-                    {totalPendingTaskSubmissions > 0 ? totalPendingTaskSubmissions : totalTaskSubmissions}
+                    {totalPendingTaskSubmissions}
                   </span>
                 )}
               </button>
@@ -681,26 +681,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         {/* Top Header */}
         {!selectedDraftTest && !isViewingStudent && (
           <header className="top-header">
-            <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <button
-                className="mobile-menu-toggle-btn"
-                onClick={() => setMobileMenuOpen(true)}
-                title="Open Navigation Menu"
-              >
-                <Menu size={22} />
-                {totalTaskSubmissions > 0 && (
-                  <span style={{
-                    position: 'absolute',
-                    top: '2px',
-                    right: '2px',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: '#ef4444'
-                  }} />
-                )}
-              </button>
-              <div>
+            <div className="header-left">
+              <div className="header-title-box">
                 <h1 className="header-title">Faculty Dashboard</h1>
                 <p className="header-greeting">Welcome back, {facultyName}!</p>
               </div>
@@ -906,9 +888,9 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           >
             <FileText size={19} />
             <span>Tasks</span>
-            {totalTaskSubmissions > 0 && (
+            {totalPendingTaskSubmissions > 0 && (
               <span className="staff-bottom-nav-badge">
-                {totalPendingTaskSubmissions > 0 ? totalPendingTaskSubmissions : totalTaskSubmissions}
+                {totalPendingTaskSubmissions}
               </span>
             )}
           </button>

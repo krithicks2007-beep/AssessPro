@@ -654,6 +654,7 @@ export default function Tests({
                         </div>
                       ) : (
                         <button
+                          className="btn-mark-submissions"
                           onClick={() => onViewSubmissions(t)}
                           style={{
                             width: '100%',

@@ -476,7 +476,15 @@ export default function App() {
             <StudentLayout 
               user={activeUser} 
               studentProfile={effectiveStudentProfile}
-              onRequestEditProfile={() => setShowOnboarding(true)}
+              onRequestEditProfile={() => {
+                if (impersonatedUser) {
+                  // Admin is viewing as this student — don't open the admin's profile modal.
+                  // Show a brief notice instead.
+                  alert('You are viewing as a student. To edit this student\'s profile, use the Students management page.');
+                  return;
+                }
+                setShowOnboarding(true);
+              }}
               onSignOut={handleSignOut} 
             />
           )}
@@ -502,9 +510,12 @@ export default function App() {
           )}
         </div>
 
-        {/* Student Onboarding & Profile Modal */}
+        {/* Student Onboarding & Profile Modal
+            Only shown when the REAL logged-in user (not an impersonated one) needs to edit their profile.
+            When an admin is impersonating a student, this modal is intentionally suppressed — admins
+            should use the Students management page to edit student profiles. */}
         <StudentOnboardingModal
-          isOpen={showOnboarding}
+          isOpen={showOnboarding && !impersonatedUser}
           onClose={() => setShowOnboarding(false)}
           user={currentUser}
           studentProfile={studentProfile}

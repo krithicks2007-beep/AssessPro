@@ -408,22 +408,37 @@ export default function Dashboard({
           const groupTests = tests.filter(t => t.group_id === group.id);
           const groupTasks = tasks.filter(t => t.group_id === group.id);
           
-          // Calculate dynamic group average
+          // Only count tests and tasks that have actual graded submissions
+          const isTaskGraded = (t) => (t.reviewedCount || 0) > 0 || Number(t.avg) > 0;
+          const isTestGraded = (t) => (t.submissionsCount || 0) > 0 || Number(t.avg) > 0;
+
+          const gradedTests = groupTests.filter(isTestGraded);
+          const gradedTasks = groupTasks.filter(isTaskGraded);
+          const totalGradedCount = gradedTests.length + gradedTasks.length;
+
+          // Calculate dynamic group average: only divide by tests/tasks with graded submissions
           let groupPct = 0;
-          const totalItemsCount = groupTests.length + groupTasks.length;
-          if (totalItemsCount > 0) {
-            const testTotal = groupTests.reduce((a, t) => a + (Number(t.avg) || 0), 0);
-            const taskTotal = groupTasks.reduce((a, t) => a + (Number(t.avg) || 0), 0);
-            groupPct = Math.round((testTotal + taskTotal) / totalItemsCount);
+          if (totalGradedCount > 0) {
+            const testTotal = gradedTests.reduce((a, t) => a + (Number(t.avg) || 0), 0);
+            const taskTotal = gradedTasks.reduce((a, t) => a + (Number(t.avg) || 0), 0);
+            groupPct = Math.round((testTotal + taskTotal) / totalGradedCount);
           }
 
           // Build test list for the group
           const testItems = [
             ...groupTests.map(gt => ({
-              id: gt.id, title: gt.title, score: Number(gt.avg) || 0, type: 'test'
+              id: gt.id,
+              title: gt.title,
+              score: Number(gt.avg) || 0,
+              hasGraded: isTestGraded(gt),
+              type: 'test'
             })),
             ...groupTasks.map(gt => ({
-              id: gt.id, title: gt.title, score: Number(gt.avg) || 0, type: 'task'
+              id: gt.id,
+              title: gt.title,
+              score: Number(gt.avg) || 0,
+              hasGraded: isTaskGraded(gt),
+              type: 'task'
             }))
           ];
 
@@ -553,10 +568,10 @@ export default function Dashboard({
                             <span style={{
                               fontSize: '0.82rem',
                               fontWeight: 700,
-                              color: '#1e293b',
+                              color: testItem.hasGraded ? '#1e293b' : '#94a3b8',
                               flexShrink: 0
                             }}>
-                              {score}%
+                              {testItem.hasGraded ? `${score}%` : '—'}
                             </span>
                           </div>
 
@@ -570,9 +585,9 @@ export default function Dashboard({
                             marginTop: '2px'
                           }}>
                             <div style={{
-                              width: `${Math.min(score, 100)}%`,
+                              width: `${testItem.hasGraded ? Math.min(score, 100) : 0}%`,
                               height: '100%',
-                              background: barColor,
+                              background: testItem.hasGraded ? barColor : '#cbd5e1',
                               borderRadius: '10px',
                               transition: 'width 0.8s ease-in-out'
                             }} />
