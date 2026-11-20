@@ -13,7 +13,10 @@ import {
   ChevronDown,
   CheckCircle2,
   AlertCircle,
-  Plus
+  Plus,
+  Menu,
+  X,
+  CheckSquare
 } from 'lucide-react';
 import api from '../../api';
 import { getSupabaseClient } from '../../supabaseClient';
@@ -37,7 +40,21 @@ import LoadingScreen from '../shared/LoadingScreen';
 import OfflineBanner from '../shared/OfflineBanner';
 
 export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' }) {
-  const [activeTab, setActiveTab] = useState(initialTab);
+  // Check if URL specifies /tasks, #/tasks, or ?tab=Tasks
+  const getInitialTab = () => {
+    if (typeof window !== 'undefined') {
+      const path = (window.location.pathname || '').toLowerCase();
+      const hash = (window.location.hash || '').toLowerCase();
+      const search = (window.location.search || '').toLowerCase();
+      if (path.includes('task') || hash.includes('task') || search.includes('tasks')) {
+        return 'Tasks';
+      }
+    }
+    return initialTab;
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [academicYear, setAcademicYear] = useState('Academic Year 2025 - 2026');
 
   // Live Database States
@@ -166,20 +183,41 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       if (supabase) {
         const { data: fetchedTasks } = await supabase.from('tasks').select('*, groups(*)').eq('created_by', user?.id).order('created_at', { ascending: false });
         
-        // Fetch task submissions to calculate averages for the dashboard
+        // Fetch task submissions to calculate real submission counts, pending reviews, and score averages
         const { data: allTaskSubs } = await supabase.from('task_submissions').select('*');
         
         if (fetchedTasks && allTaskSubs) {
            fetchedTasks.forEach(t => {
-               const subs = allTaskSubs.filter(s => String(s.task_id) === String(t.id) && (s.status === 'reviewed' || s.status === 'graded') && s.score != null);
-               if (subs.length > 0) {
-                   t.avg = Math.round(subs.reduce((acc, s) => acc + ((Number(s.score) / (t.max_score || 100)) * 100), 0) / subs.length);
-                   t.submissionsCount = subs.length;
-                   t.hasSubmissions = true;
+               const taskSubs = allTaskSubs.filter(s => String(s.task_id) === String(t.id));
+               
+               // Count students who actually submitted work
+               const submittedStudents = taskSubs.filter(s => 
+                 s.status === 'submitted' || 
+                 (s.submission_url && s.submission_url.trim() !== '') || 
+                 s.status === 'reviewed' || 
+                 s.status === 'graded'
+               );
+               
+               // Count students whose submissions need grading
+               const pendingStudents = taskSubs.filter(s => 
+                 s.status === 'submitted' || 
+                 (!s.score && s.status !== 'reviewed' && s.status !== 'graded')
+               );
+               
+               // Graded submissions with score
+               const reviewedSubs = taskSubs.filter(s => 
+                 (s.status === 'reviewed' || s.status === 'graded') && s.score != null
+               );
+               
+               t.submissionsCount = submittedStudents.length;
+               t.pendingReviewCount = pendingStudents.length;
+               t.reviewedCount = reviewedSubs.length;
+               t.hasSubmissions = submittedStudents.length > 0;
+               
+               if (reviewedSubs.length > 0) {
+                   t.avg = Math.round(reviewedSubs.reduce((acc, s) => acc + ((Number(s.score) / (t.max_score || 100)) * 100), 0) / reviewedSubs.length);
                } else {
                    t.avg = 0;
-                   t.submissionsCount = 0;
-                   t.hasSubmissions = false;
                }
            });
         }
@@ -494,6 +532,39 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   const draftCount = safeTests.filter(t => t.status === 'draft').length;
   const activeTestsCount = safeTests.filter(t => t.status === 'published').length;
 
+  const totalTaskSubmissions = tasks.reduce((sum, t) => sum + (t.submissionsCount || 0), 0);
+  const totalPendingTaskSubmissions = tasks.reduce((sum, t) => sum + (t.pendingReviewCount || 0), 0);
+
+  const handleSelectTab = (label) => {
+    if (label === 'Create Test') {
+      handleCreateDraft();
+    } else {
+      setActiveTab(label);
+      setMobileMenuOpen(false);
+      if (label === 'Tasks') {
+        window.history.replaceState(null, '', '#/tasks');
+      } else if (label === 'Dashboard') {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const hash = (window.location.hash || '').toLowerCase();
+      const path = (window.location.pathname || '').toLowerCase();
+      if (hash.includes('task') || path.includes('task')) {
+        setActiveTab('Tasks');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
+  }, []);
+
   // Sidebar navigation items
   const navItems = [
     { label: 'Dashboard', icon: Home },
@@ -512,22 +583,43 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
   return (
     <div className="layout-wrapper">
       <OfflineBanner />
+
+      {/* Mobile Backdrop Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       {/* Sidebar matching Screenshot 1 */}
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">
-            <span style={{ fontSize: '1.1rem' }}>🎓</span>
+      <aside className={`sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '0.5rem' }}>
+          <div className="sidebar-logo" style={{ paddingBottom: 0 }}>
+            <div className="sidebar-logo-icon">
+              <span style={{ fontSize: '1.1rem' }}>🎓</span>
+            </div>
+            <div className="sidebar-logo-text">
+              <span className="sidebar-logo-title">AssessPro</span>
+              <span className="sidebar-logo-sub">Online Test Platform</span>
+            </div>
           </div>
-          <div className="sidebar-logo-text">
-            <span className="sidebar-logo-title">AssessPro</span>
-            <span className="sidebar-logo-sub">Online Test Platform</span>
-          </div>
+          <button
+            className="sidebar-mobile-close-btn"
+            onClick={() => setMobileMenuOpen(false)}
+            title="Close Menu"
+          >
+            <X size={20} />
+          </button>
         </div>
 
         {/* Profile in Sidebar */}
         <div
           className="sidebar-profile"
-          onClick={() => setShowOnboarding(true)}
+          onClick={() => {
+            setMobileMenuOpen(false);
+            setShowOnboarding(true);
+          }}
           style={{ cursor: 'pointer' }}
           title="Click to edit your profile"
         >
@@ -544,19 +636,10 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         {/* Nav list */}
         <nav className="sidebar-nav">
           {navItems.map(({ label, icon: Icon, specialStyle }) => {
-            // For special links, e.g., 'Manage Groups' and 'Create Test', we open modals instead
-            const onClick = () => {
-              if (label === 'Create Test') {
-                handleCreateDraft();
-              } else {
-                setActiveTab(label);
-              }
-            };
-
             return (
               <button
                 key={label}
-                onClick={onClick}
+                onClick={() => handleSelectTab(label)}
                 className={`nav-link ${activeTab === label ? 'active' : ''}`}
                 style={specialStyle && activeTab === label ? {
                   background: '#ffffff',
@@ -566,6 +649,20 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
               >
                 <Icon size={17} />
                 <span>{label}</span>
+                {label === 'Tasks' && totalTaskSubmissions > 0 && (
+                  <span style={{
+                    marginLeft: 'auto',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    padding: '1px 7px',
+                    borderRadius: '10px',
+                    fontSize: '0.7rem',
+                    fontWeight: 800,
+                    boxShadow: '0 2px 6px rgba(239, 68, 68, 0.4)'
+                  }}>
+                    {totalPendingTaskSubmissions > 0 ? totalPendingTaskSubmissions : totalTaskSubmissions}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -584,9 +681,29 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
         {/* Top Header */}
         {!selectedDraftTest && !isViewingStudent && (
           <header className="top-header">
-            <div className="header-left">
-              <h1 className="header-title">Faculty Dashboard</h1>
-              <p className="header-greeting">Welcome back, {facultyName}!</p>
+            <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                className="mobile-menu-toggle-btn"
+                onClick={() => setMobileMenuOpen(true)}
+                title="Open Navigation Menu"
+              >
+                <Menu size={22} />
+                {totalTaskSubmissions > 0 && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '2px',
+                    right: '2px',
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    background: '#ef4444'
+                  }} />
+                )}
+              </button>
+              <div>
+                <h1 className="header-title">Faculty Dashboard</h1>
+                <p className="header-greeting">Welcome back, {facultyName}!</p>
+              </div>
             </div>
 
             <div className="header-right">
@@ -679,6 +796,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           ) : activeTab === 'Tests' ? (
             <Tests
               tests={safeTests}
+              groups={safeGroups}
               onCreateTest={handleCreateDraft}
               onConfigureTest={(t) => setSelectedDraftTest(t)}
               onQuickLaunch={handleQuickLaunch}
@@ -689,6 +807,7 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
           ) : activeTab === 'Tasks' ? (
             <Tasks
               tasks={tasks}
+              groups={safeGroups}
               onCreateTask={() => {
                 setSelectedTaskForEdit(null);
                 setShowAssignWorkModal(true);
@@ -767,6 +886,60 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
             />
           )}
         </div>
+
+        {/* Mobile Bottom Navigation Bar */}
+        <nav className="staff-mobile-bottom-nav">
+          <button
+            type="button"
+            onClick={() => handleSelectTab('Dashboard')}
+            className={`staff-bottom-nav-item ${activeTab === 'Dashboard' ? 'active' : ''}`}
+          >
+            <Home size={19} />
+            <span>Home</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectTab('Tasks')}
+            className={`staff-bottom-nav-item ${activeTab === 'Tasks' ? 'active' : ''}`}
+            style={{ position: 'relative' }}
+          >
+            <FileText size={19} />
+            <span>Tasks</span>
+            {totalTaskSubmissions > 0 && (
+              <span className="staff-bottom-nav-badge">
+                {totalPendingTaskSubmissions > 0 ? totalPendingTaskSubmissions : totalTaskSubmissions}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectTab('Tests')}
+            className={`staff-bottom-nav-item ${activeTab === 'Tests' ? 'active' : ''}`}
+          >
+            <BarChart2 size={19} />
+            <span>Tests</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectTab('Students')}
+            className={`staff-bottom-nav-item ${activeTab === 'Students' ? 'active' : ''}`}
+          >
+            <Users size={19} />
+            <span>Students</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="staff-bottom-nav-item"
+          >
+            <Menu size={19} />
+            <span>Menu</span>
+          </button>
+        </nav>
       </main>
 
       {/* Modals */}
@@ -821,10 +994,14 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       
       <TaskSubmissionsModal
         isOpen={Boolean(selectedTaskForSubmissions)}
-        onClose={() => setSelectedTaskForSubmissions(null)}
+        onClose={() => {
+          setSelectedTaskForSubmissions(null);
+          loadData();
+        }}
         task={selectedTaskForSubmissions}
         notifySuccess={notifySuccess}
         notifyError={notifyError}
+        onSubmissionsUpdated={loadData}
       />
 
       {showAssignWorkModal && (

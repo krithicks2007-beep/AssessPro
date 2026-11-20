@@ -383,6 +383,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
         return (
           <Tests
             tests={effectiveTests}
+            groups={safeGroups}
             studentSubmissions={safeStudentSubmissions}
             currentTime={currentTime}
             onLaunchTest={setActiveTestTaking}
@@ -406,6 +407,7 @@ export default function StudentLayout({ user, studentProfile, onRequestEditProfi
           <Tasks 
             studentDept={studentDept} 
             tasks={effectiveTasks}
+            groups={safeGroups}
             studentSubmissions={studentTaskSubmissions}
             studentEmail={email}
             studentId={user?.id}

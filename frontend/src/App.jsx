@@ -481,7 +481,17 @@ export default function App() {
             />
           )}
           {activeRole === 'staff' && (
-            <StaffLayout user={activeUser} onSignOut={handleSignOut} initialTab="Dashboard" />
+            <StaffLayout 
+              user={activeUser} 
+              onSignOut={handleSignOut} 
+              initialTab={
+                typeof window !== 'undefined' && (
+                  window.location.pathname.toLowerCase().includes('task') ||
+                  window.location.hash.toLowerCase().includes('task') ||
+                  window.location.search.toLowerCase().includes('tasks')
+                ) ? 'Tasks' : 'Dashboard'
+              } 
+            />
           )}
           {activeRole === 'admin' && (
             <AdminLayout 

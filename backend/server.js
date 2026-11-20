@@ -47,10 +47,15 @@ app.use(groupRoutes);
 app.use(testRoutes);
 app.use(adminRoutes);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🔗 Allowed domain: ${ALLOWED_DOMAIN}`);
-  if (!supabase) {
-    console.warn('⚠️  Supabase is not configured! Authentication will fail.');
-  }
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🔗 Allowed domain: ${ALLOWED_DOMAIN}`);
+    if (!supabase) {
+      console.warn('⚠️  Supabase is not configured! Authentication will fail.');
+    }
+  });
+}
+
+export default app;
+
