@@ -713,8 +713,8 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
 
       {/* Main Panel */}
       <main className="main-wrapper">
-        {/* Top Header */}
-        {!selectedDraftTest && !isViewingStudent && (
+        {/* Top Header (Hidden on Reports page) */}
+        {!selectedDraftTest && !isViewingStudent && activeTab !== 'Reports' && (
           <header className="top-header">
             <div className="header-left">
               <div className="header-title-box">

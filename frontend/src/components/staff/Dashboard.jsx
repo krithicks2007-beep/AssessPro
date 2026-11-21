@@ -80,23 +80,38 @@ export default function Dashboard({
 
   const hasTests = tests.length > 0;
   const hasTasks = tasks.length > 0;
+  const totalGroupsCount = displayGroups.length || 1;
 
-  const testAverage = hasTests
-    ? Math.round(tests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / tests.length)
-    : null;
+  // Group percentages:
+  // Each group % is the average of its tasks/tests (0% if group has none)
+  const taskGroupPcts = displayGroups.map(group => {
+    const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
+    if (groupTasks.length === 0) return 0;
+    return groupTasks.reduce((acc, it) => acc + (Number(it.avg) || 0), 0) / groupTasks.length;
+  });
 
+  const testGroupPcts = displayGroups.map(group => {
+    const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
+    if (groupTests.length === 0) return 0;
+    return groupTests.reduce((acc, it) => acc + (Number(it.avg) || 0), 0) / groupTests.length;
+  });
+
+  // Task Average = sum of all group task % / total groups count (e.g. (11.3 + 14.5 + 1.6 + 0 + 0) / 5)
+  const taskSum = taskGroupPcts.reduce((acc, v) => acc + v, 0);
   const taskAverage = hasTasks
-    ? Math.round(tasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / tasks.length)
+    ? Math.round(taskSum / totalGroupsCount)
     : null;
 
-  // When there are no tests, overall percentage is 100% determined by tasks!
-  // When there are no tasks, overall percentage is 100% determined by tests!
-  // When both exist, overall percentage is the average of active group averages (or test & task averages).
+  // Test Average = sum of all group test % / total groups count
+  const testSum = testGroupPcts.reduce((acc, v) => acc + v, 0);
+  const testAverage = hasTests
+    ? Math.round(testSum / totalGroupsCount)
+    : null;
+
+  // Overall Percentage = average across all groups (dividing by every group count)
   let overallPercentage = 0;
   if (hasTests && hasTasks) {
-    overallPercentage = groupAverages.length > 0
-      ? Math.round(groupAverages.reduce((acc, v) => acc + v, 0) / groupAverages.length)
-      : Math.round(((testAverage || 0) + (taskAverage || 0)) / 2);
+    overallPercentage = Math.round(((taskSum / totalGroupsCount) + (testSum / totalGroupsCount)) / 2);
   } else if (hasTasks) {
     overallPercentage = taskAverage || 0;
   } else if (hasTests) {

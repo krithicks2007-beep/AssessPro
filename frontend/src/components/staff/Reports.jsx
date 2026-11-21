@@ -880,11 +880,10 @@ export default function Reports({ groups = [], tests = [], tasks = [] }) {
     };
   }, [levelStats, allStudentsList, groupItems, isTests, testSubmissions, taskSubmissions]);
 
-  // Overall percentage calculation across all groups
+  // Overall percentage calculation across all groups (dividing by every group, e.g. 5)
   const overallPercentage = useMemo(() => {
     if (sortedGroups.length === 0) return '0.0%';
     let totalGroupPcts = 0;
-    let groupsWithItemsCount = 0;
 
     sortedGroups.forEach(grp => {
       const items = isTests
@@ -907,12 +906,10 @@ export default function Reports({ groups = [], tests = [], tasks = [] }) {
         });
         const grpAvg = sumItemPcts / items.length;
         totalGroupPcts += grpAvg;
-        groupsWithItemsCount++;
       }
     });
 
-    if (groupsWithItemsCount === 0) return '0.0%';
-    return (totalGroupPcts / groupsWithItemsCount).toFixed(1) + '%';
+    return (totalGroupPcts / sortedGroups.length).toFixed(1) + '%';
   }, [sortedGroups, isTests, tests, tasks, testSubmissions, taskSubmissions, totalDbStudentsCount]);
 
   // Format banner title with highlighted P-Skill/Test
