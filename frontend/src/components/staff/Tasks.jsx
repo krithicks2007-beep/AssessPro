@@ -502,16 +502,29 @@ export default function Tasks({
                     </div>
                   </div>
 
-                  <span style={{
-                    background: `${grp.color}15`,
-                    color: grp.color,
-                    padding: '3px 10px',
-                    borderRadius: '20px',
-                    fontSize: '0.74rem',
-                    fontWeight: 800
-                  }}>
-                    {sectionTasks.length} {sectionTasks.length === 1 ? 'Task' : 'Tasks'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <span style={{
+                      background: `${grp.color}15`,
+                      color: grp.color,
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800
+                    }}>
+                      {sectionTasks.length} {sectionTasks.length === 1 ? 'Task' : 'Tasks'}
+                    </span>
+                    <span style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      color: '#0f172a',
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800
+                    }}>
+                      Group Avg: {sectionTasks.length > 0 ? (sectionTasks.reduce((acc, t) => acc + (Number(t.avg) || 0), 0) / sectionTasks.length).toFixed(1) : '0.0'}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Grid of Task Cards for this Group */}
@@ -698,7 +711,7 @@ export default function Tasks({
                               {hasSubmissions && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.1rem' }}>
                                   <CheckCircle2 size={15} color="#3b82f6" />
-                                  <span>Graded: <strong>{t.reviewedCount || 0} / {subsCount} ({t.avg || 0}% avg)</strong></span>
+                                  <span>Graded: <strong>{t.reviewedCount || 0} / {subsCount} · Batch Avg: {t.avg || 0}%</strong></span>
                                 </div>
                               )}
                             </div>

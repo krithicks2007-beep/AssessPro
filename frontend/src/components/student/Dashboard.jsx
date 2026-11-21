@@ -17,7 +17,8 @@ import {
   ClipboardCheck,
   FileStack,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  Layers
 } from 'lucide-react';
 import CircleRing from '../shared/CircleRing';
 
@@ -540,6 +541,21 @@ export default function Dashboard({
              })
           ];
 
+          const hasTests = groupTests.length > 0;
+          const hasTasks = groupTasks.length > 0;
+          let cardTypeLabel = null;
+          let cardTypeBg = '#2563eb';
+          if (hasTests && hasTasks) {
+            cardTypeLabel = `${groupTests.length} Tests · ${groupTasks.length} Tasks`;
+            cardTypeBg = '#4f46e5';
+          } else if (hasTasks) {
+            cardTypeLabel = `${groupTasks.length} ${groupTasks.length === 1 ? 'Task' : 'Tasks'}`;
+            cardTypeBg = '#0d9488';
+          } else if (hasTests) {
+            cardTypeLabel = `${groupTests.length} ${groupTests.length === 1 ? 'Test' : 'Tests'}`;
+            cardTypeBg = '#2563eb';
+          }
+
           return (
             <div
               key={group.id || idx}
@@ -547,14 +563,46 @@ export default function Dashboard({
                 background: groupBg,
                 borderRadius: '16px',
                 border: `1.5px solid ${groupBorder}`,
-                padding: '1.35rem 1.5rem',
+                padding: '1.45rem 1.5rem 1.35rem 1.5rem',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                transition: 'transform 0.2s, box-shadow 0.2s'
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                position: 'relative',
+                marginTop: cardTypeLabel ? '8px' : '0'
               }}
             >
+              {/* Top Left Corner Badge: Identifies whether this card is Tasks, Tests, or both */}
+              {cardTypeLabel && (
+                <div style={{
+                  position: 'absolute',
+                  top: '-11px',
+                  left: '16px',
+                  background: cardTypeBg,
+                  color: '#ffffff',
+                  fontSize: '0.67rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.4px',
+                  textTransform: 'uppercase',
+                  padding: '2.5px 9px',
+                  borderRadius: '20px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                  zIndex: 4
+                }}>
+                  {hasTasks && !hasTests ? (
+                    <BookOpen size={11} color="#ffffff" />
+                  ) : hasTests && !hasTasks ? (
+                    <FileCheck size={11} color="#ffffff" />
+                  ) : (
+                    <Layers size={11} color="#ffffff" />
+                  )}
+                  <span>{cardTypeLabel}</span>
+                </div>
+              )}
               {/* Group Card Header */}
               <div>
                 <div style={{
@@ -646,11 +694,27 @@ export default function Dashboard({
                       return (
                         <div key={testItem.id || tIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
+                              {/* Type Badge: Task or Test */}
+                              <span style={{
+                                fontSize: '0.64rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.3px',
+                                padding: '1.5px 6px',
+                                borderRadius: '4px',
+                                background: testItem.type === 'task' ? '#ccfbf1' : '#dbeafe',
+                                color: testItem.type === 'task' ? '#0f766e' : '#1e40af',
+                                border: testItem.type === 'task' ? '1px solid #99f6e4' : '1px solid #bfdbfe',
+                                flexShrink: 0
+                              }}>
+                                {testItem.type === 'task' ? 'Task' : 'Test'}
+                              </span>
+
                               {testItem.type === 'task' ? (
-                                <BookOpen size={15} color="#14b8a6" style={{ flexShrink: 0 }} />
+                                <BookOpen size={14} color="#14b8a6" style={{ flexShrink: 0 }} />
                               ) : (
-                                <TestIcon size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                                <TestIcon size={14} color="#1d72fe" style={{ flexShrink: 0 }} />
                               )}
                               <span style={{
                                 fontSize: '0.82rem',

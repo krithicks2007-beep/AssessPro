@@ -293,7 +293,7 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
         </div>
         <div style={{ overflowX: "auto" }}>
           <table className="custom-table">
-            <thead><tr><th>Name</th><th>Reg No</th><th>Staff Assigned</th><th>Average</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
+            <thead><tr><th>Name</th><th>Reg No</th><th>Mail ID</th><th>Average</th><th style={{ textAlign: "right" }}>Actions</th></tr></thead>
             <tbody>
               {loading ? (
                 <tr>
@@ -312,7 +312,7 @@ export default function StudentDirectory({ allUsers, onImpersonate }) {
                   <tr key={u.id} style={{ background: needsAlert ? "#fff5f5" : "transparent", cursor: "pointer" }} onClick={() => handleStudentClick(u)}>
                     <td style={{ fontWeight: 600, color: "#1e293b" }}>{u.name || u.email} {needsAlert && <AlertCircle size={14} color="#ef4444" style={{ display: "inline", marginLeft: 4 }} />}</td>
                     <td>{u.reg_no || "-"}</td>
-                    <td>{u.assigned_staff_name || "Unassigned"}</td>
+                    <td style={{ color: "#475569", fontSize: "0.84rem" }}>{u.email || u.mailid || "-"}</td>
                     <td style={{ fontWeight: 600, color: needsAlert ? "#ef4444" : "#10b981" }}>{stat.avg}%</td>
                     <td style={{ textAlign: "right" }}><button style={{ padding: "0.35rem 0.75rem", borderRadius: "6px", border: "1px solid #1d72fe", background: "#eff6ff", color: "#1d72fe", fontSize: "0.74rem", fontWeight: 700, cursor: "pointer" }}>Manage</button></td>
                   </tr>

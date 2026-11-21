@@ -1,8 +1,158 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Download, FileText, CheckSquare, Loader, X, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  Download, 
+  FileText, 
+  CheckSquare, 
+  Loader, 
+  X, 
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
+  Users,
+  Cpu,
+  FileDown,
+  Layers
+} from 'lucide-react';
 import { getSupabaseClient } from '../../supabaseClient';
 import api from '../../api';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTablePlugin from 'jspdf-autotable';
+
+// ─── PDF Helper ────────────────────────────────────────────────────────────────
+
+function applyAutoTable(doc, options) {
+  if (typeof autoTablePlugin === 'function') {
+    autoTablePlugin(doc, options);
+  } else if (autoTablePlugin?.default && typeof autoTablePlugin.default === 'function') {
+    autoTablePlugin.default(doc, options);
+  } else if (typeof doc.autoTable === 'function') {
+    doc.autoTable(options);
+  }
+}
+
+function generateGroupPDF({ group, groupItems, isTests, studentsData, summaryStats, type = 'detailed' }) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Institution & System Header
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42); // #0f172a
+  doc.text('Bannari Amman Institute of Technology', 14, 16);
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139); // #64748b
+  doc.text('AssessPro — Examination & Assessment Platform', 14, 22);
+
+  // Divider Line
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.5);
+  doc.line(14, 26, pageWidth - 14, 26);
+
+  // Report Title
+  const typeTitle = type === 'detailed' 
+    ? 'Comprehensive Performance Report' 
+    : type === 'cleared' 
+    ? 'Cleared Students List' 
+    : 'Not Cleared / Pending Students List';
+
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Group ${group.group_number}: ${group.name} — ${typeTitle}`, 14, 34);
+
+  // Metadata / Summary subtitle
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const metaText = `Category: ${group.category || 'General'}  |  Type: ${isTests ? 'Tests' : 'Tasks'} (${groupItems.length} items)  |  Group Avg: ${summaryStats.groupPct}%  |  Date: ${dateStr}`;
+  doc.text(metaText, 14, 40);
+
+  // KPI summary badges in PDF
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(21, 128, 61); // green
+  doc.text(`Total Cleared Completions: ${summaryStats.totalCleared}`, 14, 47);
+  doc.setTextColor(185, 28, 28); // red
+  doc.text(`Pending Students: ${summaryStats.notClearedCount}`, 90, 47);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Total Assigned: ${studentsData.length}`, 155, 47);
+
+  // Filter students based on report type
+  let filteredStudents = [...studentsData];
+  if (type === 'cleared') {
+    filteredStudents = filteredStudents.filter(s => s.clearedCount > 0);
+  } else if (type === 'not_cleared') {
+    filteredStudents = filteredStudents.filter(s => s.clearedCount < groupItems.length);
+  }
+
+  // Sort by Reg No ascending
+  filteredStudents.sort((a, b) => (a.reg_no || '').localeCompare(b.reg_no || ''));
+
+  // Build table data
+  const head = [['S.No', 'Reg No', 'Student Name', 'Levels Cleared', 'Total Marks', 'Status']];
+  const body = filteredStudents.map((s, idx) => {
+    return [
+      idx + 1,
+      s.reg_no || '—',
+      s.name,
+      `${s.clearedCount} / ${groupItems.length}`,
+      s.totalScore != null ? s.totalScore : '0',
+      s.status
+    ];
+  });
+
+  applyAutoTable(doc, {
+    startY: 52,
+    head: head,
+    body: body,
+    theme: 'grid',
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.5,
+      halign: 'left',
+      cellPadding: 3.5,
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 3,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.3,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    columnStyles: {
+      0: { cellWidth: 14, halign: 'center' },
+      1: { cellWidth: 32, fontStyle: 'bold' },
+      2: { cellWidth: 55 },
+      3: { cellWidth: 26, halign: 'center' },
+      4: { cellWidth: 24, halign: 'center' },
+      5: { cellWidth: 30, halign: 'center' },
+    },
+    didParseCell: (data) => {
+      // Color-code the status column
+      if (data.section === 'body' && data.column.index === 5) {
+        const val = String(data.cell.raw || '');
+        if (val.startsWith('Cleared')) {
+          data.cell.styles.textColor = [22, 101, 52]; // green
+          data.cell.styles.fontStyle = 'bold';
+        } else {
+          data.cell.styles.textColor = [153, 27, 27]; // red
+        }
+      }
+    }
+  });
+
+  const filePrefix = (group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_');
+  doc.save(`${filePrefix}_${type === 'detailed' ? 'Detailed_Report' : type === 'cleared' ? 'Cleared_List' : 'Not_Cleared_List'}.pdf`);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -21,11 +171,9 @@ function getGroupName(item, groups) {
   return grp ? `Group ${grp.group_number}: ${grp.name}` : 'Unknown Group';
 }
 
-// studentRegMap: Map<id_or_email, reg_no> — maps student id (UUID) or email (lowercase) to real reg_no
 function resolveTestStudent(sub, studentRegMap = new Map()) {
   const email = (sub.student_email || sub.email || '').toLowerCase().trim();
   const name = sub.student_name || email.split('@')[0].replace(/\./g, ' ').toUpperCase() || 'Student';
-  // Priority: student_id lookup > email lookup > sub.student_regno > blank
   const reg = (sub.student_id ? studentRegMap.get(sub.student_id) : null)
     || (email ? studentRegMap.get(email) : null)
     || sub.student_regno
@@ -39,7 +187,6 @@ function resolveTestStudent(sub, studentRegMap = new Map()) {
 function resolveTaskStudent(sub, maxScore, studentRegMap = new Map()) {
   const email = (sub.users?.mailid || sub.users?.email || '').toLowerCase().trim();
   const name = sub.users?.name || email.split('@')[0].replace(/\./g, ' ').toUpperCase() || 'Student';
-  // Priority: student_id lookup > sub.users?.id lookup > email lookup > users.reg_no > blank
   const reg = (sub.student_id ? studentRegMap.get(sub.student_id) : null)
     || (sub.users?.id ? studentRegMap.get(sub.users.id) : null)
     || (email ? studentRegMap.get(email) : null)
@@ -67,29 +214,18 @@ function buildExcelWorkbook(selectedTests, selectedTasks, testSubmissions, taskS
       const subs = testSubmissions.filter(s => String(s.test_id) === String(test.id));
       const grpName = getGroupName(test, groups);
 
-      // Summary row
       rows.push([grpName, test.title || 'Untitled', subs.length, '', '', '']);
 
-      // Student rows
       subs.forEach(sub => {
         const { name, reg, mark } = resolveTestStudent(sub, emailRegMap);
         rows.push(['', '', '', name, reg, mark]);
       });
 
-      rows.push(['', '', '', '', '', '']); // blank spacer
+      rows.push(['', '', '', '', '', '']);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
-
-    // Column widths
     ws['!cols'] = [{ wch: 28 }, { wch: 32 }, { wch: 20 }, { wch: 26 }, { wch: 16 }, { wch: 12 }];
-
-    // Style header row (row index 0 = A1)
-    const headerCells = ['A1'];
-    headerCells.forEach(cell => {
-      if (ws[cell]) ws[cell].s = { font: { bold: true, sz: 13 }, fill: { fgColor: { rgb: 'EFF6FF' } } };
-    });
-
     XLSX.utils.book_append_sheet(wb, ws, 'Tests');
   }
 
@@ -127,13 +263,11 @@ function downloadWorkbook(wb, filename) {
   XLSX.writeFile(wb, filename + '.xlsx');
 }
 
-// ─── Download Modal ───────────────────────────────────────────────────────────
+// ─── Download Modal (Preserved Untouched) ──────────────────────────────────────
 
 function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSubmissions, emailRegMap }) {
-  // step: 'pick' | 'customize'
   const [step, setStep] = useState('pick');
-  const [mode, setMode] = useState(null); // 'all' | 'tests' | 'tasks' | 'customize'
-  const [customizeTab, setCustomizeTab] = useState('tests'); // which side to show in customize
+  const [customizeTab, setCustomizeTab] = useState('tests');
   const [selectedTestIds, setSelectedTestIds] = useState(new Set());
   const [selectedTaskIds, setSelectedTaskIds] = useState(new Set());
   const overlayRef = useRef(null);
@@ -190,7 +324,6 @@ function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSub
     onClose();
   }
 
-  // Group items for display
   function groupedItems(items) {
     const map = new Map();
     items.forEach(item => {
@@ -248,8 +381,6 @@ function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSub
 
         {/* Body */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
-
-          {/* ─ STEP 1: Pick mode ─ */}
           {step === 'pick' && (
             <div style={{ padding: '1.25rem 1.4rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {[
@@ -283,11 +414,7 @@ function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSub
                     <div style={{ fontSize: '0.76rem', color: '#64748b' }}>{opt.desc}</div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#475569', fontSize: '0.78rem', fontWeight: 600, flexShrink: 0 }}>
-                    {opt.key === 'customize' ? (
-                      <ChevronRight size={16} />
-                    ) : (
-                      <Download size={15} />
-                    )}
+                    {opt.key === 'customize' ? <ChevronRight size={16} /> : <Download size={15} />}
                     {opt.key !== 'customize' && 'Download'}
                   </div>
                 </button>
@@ -295,10 +422,8 @@ function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSub
             </div>
           )}
 
-          {/* ─ STEP 2: Customize ─ */}
           {step === 'customize' && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              {/* Sub-tab switcher */}
               <div style={{
                 display: 'flex', gap: '0',
                 borderBottom: '1px solid #f1f5f9',
@@ -324,7 +449,6 @@ function DownloadModal({ onClose, tests, tasks, groups, testSubmissions, taskSub
                 ))}
               </div>
 
-              {/* Content */}
               <div style={{ padding: '1rem 1.4rem', flex: 1, overflowY: 'auto' }}>
                 {customizeTab === 'tests' && (
                   <CustomizePanel
@@ -461,16 +585,40 @@ function CustomizePanel({ items, selectedIds, onToggle, onSelectAll, onClearAll,
   );
 }
 
+// ─── Pastel row colors (matching screenshot style cleanly) ───────────────────
+const ROW_COLORS = [
+  '#f8fafc', // Row 0: Slate-50 / Clean off-white
+  '#e0f2fe', // Row 1: Soft sky blue
+  '#dcfce7', // Row 2: Soft mint green
+  '#fef9c3', // Row 3: Soft pastel yellow
+  '#ffe4e6', // Row 4: Soft pastel rose
+  '#ede9fe', // Row 5: Soft pastel purple
+  '#ffedd5', // Row 6: Soft pastel orange
+];
+
 // ─── Main Reports component ───────────────────────────────────────────────────
 
-export default function Reports({ groups, tests, tasks }) {
-  const [viewMode, setViewMode] = useState('tests');
+export default function Reports({ groups = [], tests = [], tasks = [] }) {
+  const [viewMode, setViewMode] = useState('tasks'); // 'tasks' | 'tests'
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
   const [testSubmissions, setTestSubmissions] = useState([]);
   const [taskSubmissions, setTaskSubmissions] = useState([]);
+  const [allStudentsList, setAllStudentsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [emailRegMap, setEmailRegMap] = useState(new Map());
 
+  // Sort groups sequentially by group_number
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) => {
+      const numA = a.group_number ?? 9999;
+      const numB = b.group_number ?? 9999;
+      if (numA !== numB) return numA - numB;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [groups]);
+
+  // Load submissions and students data
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -488,8 +636,8 @@ export default function Reports({ groups, tests, tasks }) {
           taskIds.length > 0
             ? supabase.from('task_submissions').select('*, users(*)').in('task_id', taskIds)
             : Promise.resolve({ data: [] }),
-          supabase.from('students').select('id, reg_no'),
-          supabase.from('users').select('id, mailid, name'),
+          supabase.from('students').select('*'),
+          supabase.from('users').select('*'),
         ]);
 
         const map = new Map();
@@ -530,6 +678,33 @@ export default function Reports({ groups, tests, tasks }) {
 
         setEmailRegMap(map);
 
+        // Build list of all students (62 students)
+        const studentUsers = (usersRes.data || []).filter(u => 
+          (u.UserType || u.usertype || '').toLowerCase() === 'student'
+        );
+
+        let mappedStudents = [];
+        if (studentUsers.length > 0) {
+          mappedStudents = studentUsers.map(u => {
+            const cleanEmail = (u.mailid || u.email || '').toLowerCase().trim();
+            const reg = map.get(u.id) || (cleanEmail ? map.get(cleanEmail) : null) || '—';
+            return {
+              id: u.id,
+              name: u.name || (cleanEmail ? cleanEmail.split('@')[0].toUpperCase() : 'Student'),
+              email: cleanEmail,
+              reg_no: reg,
+            };
+          });
+        } else if (studentsRes.data && studentsRes.data.length > 0) {
+          mappedStudents = studentsRes.data.map(s => ({
+            id: s.id,
+            name: s.reg_no || 'Student',
+            email: '',
+            reg_no: s.reg_no || '—',
+          }));
+        }
+
+        setAllStudentsList(mappedStudents);
         setTestSubmissions(tSubsRes.data || []);
         setTaskSubmissions(tkSubsRes.data || []);
       } catch (err) {
@@ -541,11 +716,238 @@ export default function Reports({ groups, tests, tasks }) {
     fetchData();
   }, [tests, tasks]);
 
-  const sortedGroups = [...groups].sort((a, b) => (a.group_number ?? 9999) - (b.group_number ?? 9999));
+  // Set default selected group on initial load or viewMode change
+  const prevViewModeRef = useRef(viewMode);
+  useEffect(() => {
+    if (sortedGroups.length === 0) return;
+
+    const viewModeChanged = prevViewModeRef.current !== viewMode;
+    prevViewModeRef.current = viewMode;
+
+    const exists = selectedGroupId && sortedGroups.some(g => String(g.id) === String(selectedGroupId));
+
+    if (!exists) {
+      // Initial mount or deleted group: pick first group that has items, or default to first group
+      const firstWithItems = sortedGroups.find(g => {
+        const count = viewMode === 'tests'
+          ? tests.filter(t => String(t.group_id) === String(g.id)).length
+          : tasks.filter(t => String(t.group_id) === String(g.id)).length;
+        return count > 0;
+      });
+      setSelectedGroupId(firstWithItems ? firstWithItems.id : sortedGroups[0].id);
+    } else if (viewModeChanged) {
+      // If user switched subdivision tab and current group is empty in the new mode, switch to first with items
+      const countInNewMode = viewMode === 'tests'
+        ? tests.filter(t => String(t.group_id) === String(selectedGroupId)).length
+        : tasks.filter(t => String(t.group_id) === String(selectedGroupId)).length;
+      if (countInNewMode === 0) {
+        const firstWithItems = sortedGroups.find(g => {
+          const count = viewMode === 'tests'
+            ? tests.filter(t => String(t.group_id) === String(g.id)).length
+            : tasks.filter(t => String(t.group_id) === String(g.id)).length;
+          return count > 0;
+        });
+        if (firstWithItems) {
+          setSelectedGroupId(firstWithItems.id);
+        }
+      }
+    }
+  }, [viewMode, sortedGroups, tests, tasks]);
+
+  const activeGroup = useMemo(() => {
+    return sortedGroups.find(g => String(g.id) === String(selectedGroupId)) || sortedGroups[0] || null;
+  }, [sortedGroups, selectedGroupId]);
+
+  // Calculate items for active group
+  const isTests = viewMode === 'tests';
+  const groupItems = useMemo(() => {
+    if (!activeGroup) return [];
+    return isTests
+      ? tests.filter(t => String(t.group_id) === String(activeGroup.id))
+      : tasks.filter(t => String(t.group_id) === String(activeGroup.id));
+  }, [activeGroup, isTests, tests, tasks]);
+
+  // Total students count from DB (e.g. 62)
+  const totalDbStudentsCount = allStudentsList.length || 62;
+
+  // Level-wise calculations for the active group
+  const levelStats = useMemo(() => {
+    return groupItems.map(item => {
+      const subs = isTests
+        ? testSubmissions.filter(s => String(s.test_id) === String(item.id))
+        : taskSubmissions.filter(s => String(s.task_id) === String(item.id));
+
+      // Determine denominator (assigned students)
+      let assignedCount = totalDbStudentsCount;
+      if (Array.isArray(item.assigned_students) && item.assigned_students.length > 0) {
+        assignedCount = item.assigned_students.length;
+      }
+
+      // Cleared: score > 0
+      const clearedSubs = subs.filter(s => {
+        const score = Number(s.score);
+        const pct = Number(s.percentage);
+        return (!isNaN(score) && score > 0) || (!isNaN(pct) && pct > 0);
+      });
+      const clearedCount = clearedSubs.length;
+
+      // Sum of all marks of students
+      const totalMarksSum = subs.reduce((acc, s) => {
+        const score = Number(s.score);
+        return acc + (!isNaN(score) ? score : 0);
+      }, 0);
+
+      // Level percentage: sum of marks / (assignedCount * max_score) * 100
+      const maxScore = item.max_score || item.total_marks || 100;
+      const maxPossibleMarks = assignedCount * maxScore;
+      const pctNumber = maxPossibleMarks > 0 ? (totalMarksSum / maxPossibleMarks) * 100 : 0;
+
+      return {
+        item,
+        title: item.title || 'Untitled',
+        clearedCount,
+        assignedCount,
+        totalMarksSum,
+        pctNumber,
+        pctDisplay: pctNumber.toFixed(1) + '%',
+      };
+    });
+  }, [groupItems, isTests, testSubmissions, taskSubmissions, totalDbStudentsCount]);
+
+  // Group summary calculations
+  const summaryStats = useMemo(() => {
+    const totalClearedCompletions = levelStats.reduce((sum, lvl) => sum + lvl.clearedCount, 0);
+
+    // Group % = avg of all task percentages
+    const groupPct = levelStats.length > 0
+      ? (levelStats.reduce((sum, lvl) => sum + lvl.pctNumber, 0) / levelStats.length).toFixed(1)
+      : '0.0';
+
+    // Map each student's progress in this active group
+    const studentsData = allStudentsList.map(student => {
+      const studentId = student.id;
+      const studentEmail = (student.email || '').toLowerCase().trim();
+
+      let clearedCount = 0;
+      let totalScore = 0;
+
+      groupItems.forEach(item => {
+        const subs = isTests
+          ? testSubmissions.filter(s => String(s.test_id) === String(item.id))
+          : taskSubmissions.filter(s => String(s.task_id) === String(item.id));
+
+        const studentSub = subs.find(s => {
+          const sId = s.student_id || s.users?.id || s.user_id;
+          const sMail = (s.student_email || s.email || s.users?.mailid || '').toLowerCase().trim();
+          return (studentId && String(sId) === String(studentId)) || (studentEmail && sMail === studentEmail);
+        });
+
+        if (studentSub) {
+          const score = Number(studentSub.score);
+          const pct = Number(studentSub.percentage);
+          if ((!isNaN(score) && score > 0) || (!isNaN(pct) && pct > 0)) {
+            clearedCount++;
+          }
+          if (!isNaN(score) && score > 0) {
+            totalScore += score;
+          }
+        }
+      });
+
+      const totalItemsCount = groupItems.length;
+      let status = 'Not Cleared';
+      if (totalItemsCount > 0 && clearedCount === totalItemsCount) {
+        status = 'Cleared';
+      } else if (clearedCount > 0) {
+        status = `Cleared (${clearedCount}/${totalItemsCount})`;
+      }
+
+      return {
+        ...student,
+        clearedCount,
+        totalScore,
+        status,
+      };
+    });
+
+    const notClearedCount = studentsData.filter(s => s.clearedCount < groupItems.length).length;
+
+    return {
+      totalCleared: totalClearedCompletions,
+      notClearedCount,
+      groupPct,
+      studentsData,
+    };
+  }, [levelStats, allStudentsList, groupItems, isTests, testSubmissions, taskSubmissions]);
+
+  // Overall percentage calculation across all groups
+  const overallPercentage = useMemo(() => {
+    if (sortedGroups.length === 0) return '0.0%';
+    let totalGroupPcts = 0;
+    let groupsWithItemsCount = 0;
+
+    sortedGroups.forEach(grp => {
+      const items = isTests
+        ? tests.filter(t => String(t.group_id) === String(grp.id))
+        : tasks.filter(t => String(t.group_id) === String(grp.id));
+
+      if (items.length > 0) {
+        let sumItemPcts = 0;
+        items.forEach(it => {
+          const subs = isTests
+            ? testSubmissions.filter(s => String(s.test_id) === String(it.id))
+            : taskSubmissions.filter(s => String(s.task_id) === String(it.id));
+          const assignedCount = (Array.isArray(it.assigned_students) && it.assigned_students.length > 0)
+            ? it.assigned_students.length
+            : totalDbStudentsCount;
+          const marksSum = subs.reduce((sum, s) => sum + (Number(s.score) || 0), 0);
+          const maxMarks = assignedCount * (it.max_score || it.total_marks || 100);
+          const pct = maxMarks > 0 ? (marksSum / maxMarks) * 100 : 0;
+          sumItemPcts += pct;
+        });
+        const grpAvg = sumItemPcts / items.length;
+        totalGroupPcts += grpAvg;
+        groupsWithItemsCount++;
+      }
+    });
+
+    if (groupsWithItemsCount === 0) return '0.0%';
+    return (totalGroupPcts / groupsWithItemsCount).toFixed(1) + '%';
+  }, [sortedGroups, isTests, tests, tasks, testSubmissions, taskSubmissions, totalDbStudentsCount]);
+
+  // Format banner title with highlighted P-Skill/Test
+  const bannerTitle = useMemo(() => {
+    if (!activeGroup) return { main: 'Assessment', highlight: isTests ? 'Test' : 'P-Skill', suffix: 'Result' };
+    const raw = activeGroup.name || 'Assessment';
+    // Clean out Pskill / P-Skill and Result
+    let clean = raw.replace(/p[- ]?skill/gi, '').replace(/result/gi, '').trim();
+    if (!clean) clean = raw;
+    return {
+      main: clean,
+      highlight: isTests ? 'Test' : 'P-Skill',
+      suffix: 'Result'
+    };
+  }, [activeGroup, isTests]);
+
+  // PDF Download trigger
+  function handleDownloadPDF(type) {
+    if (!activeGroup || groupItems.length === 0) {
+      alert('No data available to export for this group.');
+      return;
+    }
+    generateGroupPDF({
+      group: activeGroup,
+      groupItems,
+      isTests,
+      studentsData: summaryStats.studentsData,
+      summaryStats,
+      type,
+    });
+  }
 
   return (
-    <div className="dashboard-content">
-      {/* Download modal */}
+    <div className="dashboard-content" style={{ paddingBottom: '2.5rem' }}>
+      {/* Existing Excel Download Modal (Untouched) */}
       {showDownloadModal && (
         <DownloadModal
           onClose={() => setShowDownloadModal(false)}
@@ -558,13 +960,13 @@ export default function Reports({ groups, tests, tasks }) {
         />
       )}
 
-      {/* Header bar */}
+      {/* Top Header Bar */}
       <div style={{
         background: '#ffffff',
         padding: '1.1rem 1.5rem',
         borderRadius: '14px',
-        border: '1px solid #e5e7eb',
-        marginBottom: '1.35rem',
+        border: '1px solid #e2e8f0',
+        marginBottom: '1.25rem',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -572,31 +974,39 @@ export default function Reports({ groups, tests, tasks }) {
         gap: '0.75rem'
       }}>
         <div>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#111827', margin: 0 }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
             Performance Reports
           </h2>
           <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '0.2rem 0 0' }}>
-            View completion data per group and export to Excel.
+            Overall {isTests ? 'Test' : 'Task'} Average: <strong style={{ color: '#0f172a' }}>{overallPercentage}</strong> · Total Students: <strong style={{ color: '#0f172a' }}>{totalDbStudentsCount}</strong>
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* View toggle */}
+          {/* Subdivision toggle: Tasks / Tests */}
           <div style={{
-            display: 'flex', background: '#f1f5f9',
-            padding: '0.3rem', borderRadius: '10px', gap: '0.25rem'
+            display: 'flex',
+            background: '#f1f5f9',
+            padding: '0.28rem',
+            borderRadius: '9px',
+            gap: '0.25rem'
           }}>
-            {['tests', 'tasks'].map(m => (
+            {['tasks', 'tests'].map(m => (
               <button
                 key={m}
                 onClick={() => setViewMode(m)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
                   padding: '0.42rem 1rem',
-                  borderRadius: '7px', border: 'none',
+                  borderRadius: '7px',
+                  border: 'none',
                   background: viewMode === m ? '#ffffff' : 'transparent',
                   color: viewMode === m ? '#0f172a' : '#64748b',
-                  fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
                   boxShadow: viewMode === m ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                   transition: 'all 0.15s'
                 }}
@@ -607,16 +1017,25 @@ export default function Reports({ groups, tests, tasks }) {
             ))}
           </div>
 
-          {/* Download button */}
+          {/* Download Report Excel button (Preserved untouched) */}
           <button
             onClick={() => setShowDownloadModal(true)}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.5rem 1rem',
-              background: '#0f172a', color: '#ffffff',
-              border: 'none', borderRadius: '8px',
-              fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer'
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.52rem 1.05rem',
+              background: '#0f172a',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 700,
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              transition: 'background 0.15s'
             }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#1e293b'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = '#0f172a'; }}
           >
             <Download size={15} />
             Download Report
@@ -624,122 +1043,502 @@ export default function Reports({ groups, tests, tasks }) {
         </div>
       </div>
 
-      {/* Content */}
+      {/* Sequential Group Navigation Pills */}
+      <div style={{
+        background: '#ffffff',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        padding: '0.65rem 0.9rem',
+        marginBottom: '1.25rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        overflowX: 'auto',
+        scrollBehavior: 'smooth',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarWidth: 'thin'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.35rem',
+          fontSize: '0.76rem',
+          fontWeight: 700,
+          color: '#64748b',
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          marginRight: '0.4rem',
+          flexShrink: 0
+        }}>
+          <Layers size={14} />
+          <span>Groups:</span>
+        </div>
+
+        {sortedGroups.map(grp => {
+          const isSelected = activeGroup && String(grp.id) === String(activeGroup.id);
+          const itemCount = isTests
+            ? tests.filter(t => String(t.group_id) === String(grp.id)).length
+            : tasks.filter(t => String(t.group_id) === String(grp.id)).length;
+
+          return (
+            <button
+              key={grp.id}
+              onClick={(e) => {
+                setSelectedGroupId(grp.id);
+                e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.45rem 0.85rem',
+                borderRadius: '8px',
+                border: isSelected ? '1px solid #0f172a' : '1px solid #e2e8f0',
+                background: isSelected ? '#0f172a' : '#ffffff',
+                color: isSelected ? '#ffffff' : '#334155',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                transition: 'all 0.22s cubic-bezier(0.16, 1, 0.3, 1)'
+              }}
+              onMouseEnter={e => {
+                if (!isSelected) {
+                  e.currentTarget.style.background = '#f8fafc';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                }
+              }}
+              onMouseLeave={e => {
+                if (!isSelected) {
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#e2e8f0';
+                }
+              }}
+            >
+              <span>Group {grp.group_number}: {grp.name}</span>
+              <span style={{
+                fontSize: '0.68rem',
+                fontWeight: 700,
+                padding: '1px 6px',
+                borderRadius: '12px',
+                background: isSelected ? 'rgba(255,255,255,0.2)' : '#f1f5f9',
+                color: isSelected ? '#ffffff' : '#64748b'
+              }}>
+                {itemCount}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Main Content Area */}
       {loading ? (
         <div style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8' }}>
           <Loader size={28} style={{ margin: '0 auto 0.75rem', display: 'block', animation: 'spin 1s linear infinite' }} />
           <div style={{ fontSize: '0.85rem' }}>Loading report data...</div>
         </div>
-      ) : sortedGroups.length === 0 ? (
-        <div style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', background: '#fff', borderRadius: '14px', border: '1px solid #e5e7eb', fontSize: '0.88rem' }}>
+      ) : !activeGroup ? (
+        <div style={{ padding: '4rem', textAlign: 'center', color: '#94a3b8', background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', fontSize: '0.88rem' }}>
           No groups found. Create a group first.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {sortedGroups.map(group => {
-            const isTests = viewMode === 'tests';
-            const groupItems = isTests
-              ? tests.filter(t => String(t.group_id) === String(group.id))
-              : tasks.filter(t => String(t.group_id) === String(group.id));
+        <div
+          key={`${viewMode}-${activeGroup.id}`}
+          className="report-smooth-fade"
+          style={{
+            background: '#ffffff',
+            borderRadius: '14px',
+            border: '1px solid #e2e8f0',
+            padding: '1.25rem 1.4rem'
+          }}
+        >
+          {/* Group Header Banner */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            paddingBottom: '1.15rem',
+            marginBottom: '1.25rem'
+          }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a' }}>
+                Group {activeGroup.group_number}: {activeGroup.name}
+              </div>
+              <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '3px' }}>
+                {activeGroup.category || 'Professional Core'}
+              </div>
+            </div>
 
-            if (groupItems.length === 0) return null;
+            <div style={{
+              fontSize: '0.86rem',
+              color: '#64748b',
+              fontWeight: 600
+            }}>
+              {groupItems.length} {isTests ? 'tests' : 'tasks'}
+            </div>
+          </div>
 
-            return (
-              <div key={group.id} style={{
-                background: '#ffffff', borderRadius: '14px',
-                border: '1px solid #e2e8f0', overflow: 'hidden'
+          {/* Two-Column Layout (Matching Screenshot Format) */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+            gap: '1.75rem',
+            alignItems: 'start'
+          }}>
+            {/* ─── LEFT COLUMN: Level Result Table ───────────────────────────── */}
+            <div>
+              {/* Standalone Dark Navy Banner with Title & Icon */}
+              <div style={{
+                background: '#06315c',
+                borderRadius: '12px',
+                padding: '0.95rem 1.35rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.85rem',
+                marginBottom: '1.25rem',
+                boxShadow: '0 2px 6px rgba(6, 49, 92, 0.15)'
               }}>
-                {/* Group header */}
                 <div style={{
-                  padding: '0.9rem 1.25rem',
-                  background: '#f8fafc',
-                  borderBottom: '1px solid #e2e8f0',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                  border: '2px solid rgba(255, 255, 255, 0.7)',
+                  borderRadius: '8px',
+                  padding: '5px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
-                      Group {group.group_number}: {group.name}
-                    </div>
-                    {group.category && (
-                      <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '1px' }}>{group.category}</div>
-                    )}
-                  </div>
-                  <div style={{ fontSize: '0.76rem', color: '#64748b', fontWeight: 600 }}>
-                    {groupItems.length} {isTests ? 'test' : 'task'}{groupItems.length !== 1 ? 's' : ''}
-                  </div>
+                  <Cpu size={22} color="#ffffff" />
                 </div>
-
-                {/* Items list */}
-                <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {groupItems.map(item => {
-                    const subs = isTests
-                      ? testSubmissions.filter(s => String(s.test_id) === String(item.id))
-                      : taskSubmissions.filter(s => String(s.task_id) === String(item.id));
-
-                    return (
-                      <div key={item.id} style={{
-                        border: '1px solid #f1f5f9', borderRadius: '10px',
-                        padding: '0.85rem 1rem', background: '#fafafa'
-                      }}>
-                        {/* Item header */}
-                        <div style={{
-                          display: 'flex', alignItems: 'center', gap: '0.5rem',
-                          marginBottom: subs.length > 0 ? '0.75rem' : 0
-                        }}>
-                          {isTests
-                            ? <FileText size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
-                            : <CheckSquare size={15} color="#14b8a6" style={{ flexShrink: 0 }} />}
-                          <span style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {item.title}
-                          </span>
-                          <span style={{
-                            fontSize: '0.74rem', fontWeight: 700,
-                            color: subs.length > 0 ? '#059669' : '#94a3b8',
-                            background: subs.length > 0 ? '#ecfdf5' : '#f1f5f9',
-                            padding: '2px 9px', borderRadius: '20px', flexShrink: 0
-                          }}>
-                            {subs.length} completed
-                          </span>
-                        </div>
-
-                        {/* Student chips */}
-                        {subs.length === 0 ? (
-                          <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                            No submissions yet.
-                          </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-                            {subs.map(sub => {
-                              let name, mark;
-                              if (isTests) {
-                                const r = resolveTestStudent(sub, emailRegMap);
-                                name = r.name; mark = r.mark;
-                              } else {
-                                const r = resolveTaskStudent(sub, item.max_score, emailRegMap);
-                                name = r.name; mark = r.mark;
-                              }
-                              return (
-                                <div key={sub.id} style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                                  background: '#ffffff', border: '1px solid #e2e8f0',
-                                  borderRadius: '6px', padding: '0.28rem 0.65rem',
-                                  fontSize: '0.76rem'
-                                }}>
-                                  <span style={{ color: '#1e293b', fontWeight: 600 }}>{name}</span>
-                                  <span style={{ color: '#64748b' }}>·</span>
-                                  <span style={{ color: isTests ? '#1d72fe' : '#059669', fontWeight: 700 }}>{mark}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div style={{
+                  fontSize: '1.25rem',
+                  fontWeight: 800,
+                  color: '#ffffff',
+                  letterSpacing: '0.2px'
+                }}>
+                  {bannerTitle.main}{' '}
+                  <span style={{ color: '#facc15' }}>{bannerTitle.highlight}</span>{' '}
+                  {bannerTitle.suffix}
                 </div>
               </div>
-            );
-          })}
+
+              {/* Table / Empty State */}
+              {levelStats.length === 0 ? (
+                <div style={{
+                  border: '1.5px dashed #cbd5e1',
+                  borderRadius: '12px',
+                  padding: '3.5rem 1.5rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '0.65rem',
+                  background: '#f8fafc'
+                }}>
+                  <div style={{
+                    width: '46px',
+                    height: '46px',
+                    borderRadius: '50%',
+                    background: '#e2e8f0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#64748b'
+                  }}>
+                    <Layers size={22} />
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.96rem', color: '#1e293b' }}>
+                    No {isTests ? 'Tests' : 'Tasks'} in {activeGroup.name}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', maxWidth: '320px', lineHeight: 1.4 }}>
+                    There are no {isTests ? 'tests' : 'tasks'} assigned to this group yet. You can create assignments from the {isTests ? 'Tests' : 'Tasks'} tab.
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  border: '2px solid #06315c',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  background: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    textAlign: 'left'
+                  }}>
+                    <thead>
+                      <tr style={{ background: '#06315c', color: '#ffffff', fontSize: '1rem', fontWeight: 800 }}>
+                        <th style={{ padding: '0.9rem 1.25rem', borderRight: '1.5px solid #1e4b85' }}>
+                          {isTests ? 'Test Level' : 'P Skill Level'}
+                        </th>
+                        <th style={{ padding: '0.9rem 1.25rem', textAlign: 'center', borderRight: '1.5px solid #1e4b85' }}>
+                          Cleared
+                        </th>
+                        <th style={{ padding: '0.9rem 1.25rem', textAlign: 'center' }}>
+                          Percentage
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {levelStats.map((lvl, index) => {
+                        const rowBg = ROW_COLORS[index % ROW_COLORS.length];
+                        return (
+                          <tr
+                            key={lvl.item.id}
+                            style={{
+                              background: rowBg,
+                              borderBottom: index === levelStats.length - 1 ? 'none' : '1px solid #06315c',
+                            }}
+                          >
+                            {/* Column 1: Level Name */}
+                            <td style={{
+                              padding: '0.9rem 1.25rem',
+                              fontWeight: 800,
+                              fontSize: '1.02rem',
+                              color: '#0f172a',
+                              borderRight: '1px solid #06315c'
+                            }}>
+                              {lvl.title}
+                            </td>
+
+                            {/* Column 2: Cleared Count */}
+                            <td style={{
+                              padding: '0.9rem 1.25rem',
+                              textAlign: 'center',
+                              fontWeight: 800,
+                              fontSize: '1.02rem',
+                              color: '#0f172a',
+                              borderRight: '1px solid #06315c'
+                            }}>
+                              {lvl.clearedCount}
+                            </td>
+
+                            {/* Column 3: Percentage */}
+                            <td style={{
+                              padding: '0.9rem 1.25rem',
+                              textAlign: 'center',
+                              fontWeight: 800,
+                              fontSize: '1.02rem',
+                              color: '#0f172a'
+                            }}>
+                              {lvl.pctDisplay}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* ─── RIGHT COLUMN: Summary & PDF Downloads ─────────────────────── */}
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {/* Summary Card */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '16px',
+                padding: '1.25rem 1.4rem',
+                marginBottom: '1.25rem',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+              }}>
+                {/* Summary Header */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.6rem',
+                  color: '#0f172a',
+                  fontSize: '1.05rem',
+                  fontWeight: 800,
+                  marginBottom: '1.15rem'
+                }}>
+                  <div style={{
+                    background: '#e0f2fe',
+                    padding: '6px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <Users size={18} color="#0284c7" />
+                  </div>
+                  <span>Summary</span>
+                </div>
+
+                {/* Two KPI Cards with vertical divider */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto 1fr',
+                  gap: '0.75rem',
+                  alignItems: 'center'
+                }}>
+                  {/* Cleared Box */}
+                  <div style={{
+                    background: '#f0fdf4',
+                    borderRadius: '12px',
+                    padding: '1.15rem 0.75rem',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.45rem',
+                      color: '#16a34a',
+                      fontWeight: 700,
+                      fontSize: '0.88rem'
+                    }}>
+                      <CheckCircle2 size={17} color="#16a34a" />
+                      <span>Cleared</span>
+                    </div>
+                    <div style={{
+                      fontSize: '2.4rem',
+                      fontWeight: 900,
+                      color: '#0f172a',
+                      lineHeight: '1.1',
+                      marginTop: '0.35rem'
+                    }}>
+                      {groupItems.length > 0 ? summaryStats.totalCleared : 0}
+                    </div>
+                  </div>
+
+                  {/* Vertical divider line */}
+                  <div style={{ width: '1px', height: '65px', background: '#e2e8f0' }} />
+
+                  {/* Not Cleared Box */}
+                  <div style={{
+                    background: '#fef2f2',
+                    borderRadius: '12px',
+                    padding: '1.15rem 0.75rem',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.45rem',
+                      color: '#dc2626',
+                      fontWeight: 700,
+                      fontSize: '0.88rem'
+                    }}>
+                      <XCircle size={17} color="#dc2626" />
+                      <span>Not Cleared</span>
+                    </div>
+                    <div style={{
+                      fontSize: '2.4rem',
+                      fontWeight: 900,
+                      color: '#0f172a',
+                      lineHeight: '1.1',
+                      marginTop: '0.35rem'
+                    }}>
+                      {groupItems.length > 0 ? summaryStats.notClearedCount : 0}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3 PDF Download Buttons */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {/* 1. Download Detailed Report (PDF) */}
+                <button
+                  onClick={() => handleDownloadPDF('detailed')}
+                  disabled={groupItems.length === 0}
+                  style={{
+                    background: groupItems.length === 0 ? '#94a3b8' : '#0854a0',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '12px',
+                    padding: '0.95rem 1.25rem',
+                    cursor: groupItems.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: groupItems.length === 0 ? 0.6 : 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.2rem',
+                    transition: 'background 0.15s ease',
+                    boxShadow: groupItems.length === 0 ? 'none' : '0 2px 6px rgba(8, 84, 160, 0.2)'
+                  }}
+                  onMouseEnter={e => { if (groupItems.length > 0) e.currentTarget.style.background = '#064380'; }}
+                  onMouseLeave={e => { if (groupItems.length > 0) e.currentTarget.style.background = '#0854a0'; }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 800, fontSize: '0.94rem' }}>
+                    <Download size={18} />
+                    <span>Download Detailed Report (PDF)</span>
+                  </div>
+                  <span style={{ fontSize: '0.74rem', color: groupItems.length === 0 ? '#e2e8f0' : '#bfdbfe' }}>
+                    {groupItems.length === 0 ? 'No assignments to export' : 'Student-wise list (Cleared / Not Cleared)'}
+                  </span>
+                </button>
+
+                {/* 2 & 3. Side-by-side Cleared List & Not Cleared List */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '0.75rem'
+                }}>
+                  {/* Download Cleared List */}
+                  <button
+                    onClick={() => handleDownloadPDF('cleared')}
+                    disabled={groupItems.length === 0}
+                    style={{
+                      background: '#ffffff',
+                      color: groupItems.length === 0 ? '#94a3b8' : '#15803d',
+                      border: groupItems.length === 0 ? '1.5px solid #e2e8f0' : '1.5px solid #22c55e',
+                      borderRadius: '10px',
+                      padding: '0.75rem 0.5rem',
+                      cursor: groupItems.length === 0 ? 'not-allowed' : 'pointer',
+                      opacity: groupItems.length === 0 ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.45rem',
+                      fontWeight: 700,
+                      fontSize: '0.78rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => { if (groupItems.length > 0) { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#16a34a'; } }}
+                    onMouseLeave={e => { if (groupItems.length > 0) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.borderColor = '#22c55e'; } }}
+                  >
+                    <Download size={16} color={groupItems.length === 0 ? '#94a3b8' : '#15803d'} />
+                    <span>Download Cleared List (PDF)</span>
+                  </button>
+
+                  {/* Download Not Cleared List */}
+                  <button
+                    onClick={() => handleDownloadPDF('not_cleared')}
+                    disabled={groupItems.length === 0}
+                    style={{
+                      background: '#ffffff',
+                      color: groupItems.length === 0 ? '#94a3b8' : '#b91c1c',
+                      border: groupItems.length === 0 ? '1.5px solid #e2e8f0' : '1.5px solid #ef4444',
+                      borderRadius: '10px',
+                      padding: '0.75rem 0.5rem',
+                      cursor: groupItems.length === 0 ? 'not-allowed' : 'pointer',
+                      opacity: groupItems.length === 0 ? 0.6 : 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.45rem',
+                      fontWeight: 700,
+                      fontSize: '0.78rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={e => { if (groupItems.length > 0) { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.borderColor = '#dc2626'; } }}
+                    onMouseLeave={e => { if (groupItems.length > 0) { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.borderColor = '#ef4444'; } }}
+                  >
+                    <Download size={16} color={groupItems.length === 0 ? '#94a3b8' : '#b91c1c'} />
+                    <span>Download Not Cleared List (PDF)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

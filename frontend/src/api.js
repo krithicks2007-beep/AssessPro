@@ -408,11 +408,19 @@ export const api = {
                    aggs[s.test_id].totalPct += pct;
                    aggs[s.test_id].count++;
                 });
-                for (const tId in aggs) {
-                   const denominator = aggs[tId].count;
-                   avgMap[tId] = denominator > 0 ? Math.round(aggs[tId].totalPct / denominator) : 0;
-                   countMap[tId] = denominator;
-                }
+                data.forEach(t => {
+                  const tAgg = aggs[t.id];
+                  const assignedCount = (Array.isArray(t.assigned_students) && t.assigned_students.length > 0)
+                    ? t.assigned_students.length
+                    : (globalStudentCount || 62);
+                  if (tAgg) {
+                    avgMap[t.id] = assignedCount > 0 ? Number(((tAgg.totalPct / assignedCount)).toFixed(1)) : 0;
+                    countMap[t.id] = tAgg.count;
+                  } else {
+                    avgMap[t.id] = 0;
+                    countMap[t.id] = 0;
+                  }
+                });
               }
             }
           } catch (e) {

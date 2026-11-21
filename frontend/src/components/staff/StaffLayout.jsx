@@ -183,10 +183,16 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
       if (supabase) {
         const { data: fetchedTasks } = await supabase.from('tasks').select('*, groups(*)').eq('created_by', user?.id).order('created_at', { ascending: false });
         
-        // Fetch task submissions to calculate real submission counts, pending reviews, and score averages
-        const { data: allTaskSubs } = await supabase.from('task_submissions').select('*');
+        // Fetch task submissions and test submissions to calculate real submission counts, pending reviews, and uniform averages
+        const [taskSubsRes, testSubsRes] = await Promise.all([
+          supabase.from('task_submissions').select('*'),
+          supabase.from('test_submissions').select('*')
+        ]);
+        const allTaskSubs = taskSubsRes.data || [];
+        const allTestSubs = testSubsRes.data || [];
+        const totalCohortCount = allStuds.length || 62;
         
-        if (fetchedTasks && allTaskSubs) {
+        if (fetchedTasks) {
            fetchedTasks.forEach(t => {
                const taskSubs = allTaskSubs.filter(s => String(s.task_id) === String(t.id));
                
@@ -214,15 +220,44 @@ export default function StaffLayout({ user, onSignOut, initialTab = 'Dashboard' 
                t.reviewedCount = reviewedSubs.length;
                t.hasSubmissions = submittedStudents.length > 0;
                
-               if (reviewedSubs.length > 0) {
-                   t.avg = Math.round(reviewedSubs.reduce((acc, s) => acc + ((Number(s.score) / (t.max_score || 100)) * 100), 0) / reviewedSubs.length);
-               } else {
-                   t.avg = 0;
-               }
+               const assignedCount = (Array.isArray(t.assigned_students) && t.assigned_students.length > 0)
+                 ? t.assigned_students.length
+                 : totalCohortCount;
+               
+               const maxScore = t.max_score || 100;
+               const maxPossible = assignedCount * maxScore;
+               const totalScore = reviewedSubs.reduce((acc, s) => acc + (Number(s.score) || 0), 0);
+               
+               // Uniform calculation: sum of all student scores / (assignedCount * maxScore) * 100
+               t.avg = maxPossible > 0 ? Number(((totalScore / maxPossible) * 100).toFixed(1)) : 0;
+               t.clearedCount = reviewedSubs.filter(s => Number(s.score) > 0).length;
+               t.totalAssigned = assignedCount;
            });
+           setTasks(fetchedTasks || []);
         }
-        
-        setTasks(fetchedTasks || []);
+
+        if (fetchedTests && fetchedTests.length > 0) {
+           fetchedTests.forEach(t => {
+               const testSubs = allTestSubs.filter(s => String(s.test_id) === String(t.id));
+               const completedSubs = testSubs.filter(s => s.status === 'completed' || s.score != null);
+               
+               t.submissionsCount = completedSubs.length;
+               t.hasSubmissions = completedSubs.length > 0;
+               
+               const assignedCount = (Array.isArray(t.assigned_students) && t.assigned_students.length > 0)
+                 ? t.assigned_students.length
+                 : totalCohortCount;
+               
+               const maxScore = t.total_marks || t.max_score || 100;
+               const maxPossible = assignedCount * maxScore;
+               const totalScore = completedSubs.reduce((acc, s) => acc + (Number(s.score) || 0), 0);
+               
+               t.avg = maxPossible > 0 ? Number(((totalScore / maxPossible) * 100).toFixed(1)) : 0;
+               t.clearedCount = completedSubs.filter(s => Number(s.score) > 0).length;
+               t.totalAssigned = assignedCount;
+           });
+           setTests([...fetchedTests]);
+        }
       }
 
       if (resolvedProfile && resolvedProfile.department) {

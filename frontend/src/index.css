@@ -1537,18 +1537,27 @@ body {
 /* =========================================================================
    Smooth Page & Tab Transition Animations
    ========================================================================= */
+html {
+  scroll-behavior: smooth;
+}
+
 .page-transition-enter {
   width: 100%;
+  animation: apPageFadeIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.report-smooth-fade {
+  animation: apPageFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes apPageFadeIn {
   0% {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(8px);
   }
   100% {
     opacity: 1;
-    transform: none;
+    transform: translateY(0);
   }
 }
 
@@ -1797,6 +1806,29 @@ body {
   transform: none;
 }
 
+/* Staff Dashboard Layout (Desktop Base) */
+.staff-metrics-row {
+  display: flex;
+  gap: 0.85rem;
+  margin-bottom: 1.75rem;
+  align-items: stretch;
+  width: 100%;
+}
+
+.staff-dashboard-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .staff-metrics-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+  }
+}
+
 /* =========================================================================
    Responsive Media Queries for Mobile Screens (Adjusting Font Sizes & Layout)
    ========================================================================= */
@@ -1913,6 +1945,23 @@ body {
 
   .dashboard-content {
     padding: 0.75rem !important;
+  }
+
+  /* Staff Dashboard Specific Mobile Responsiveness */
+  .staff-dashboard-container {
+    padding-bottom: 5.5rem !important; /* Space for the fixed bottom navigation bar */
+  }
+
+  .staff-metrics-row {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.65rem !important;
+    margin-bottom: 1.15rem !important;
+  }
+
+  .staff-dashboard-groups-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
   }
 
   /* Group & Status Filter Toolbars in Tasks and Tests */

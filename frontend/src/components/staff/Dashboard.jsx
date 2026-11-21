@@ -19,7 +19,8 @@ import {
   Play,
   Users,
   UserCheck,
-  ArrowRight
+  ArrowRight,
+  Layers
 } from 'lucide-react';
 import CircleRing from '../shared/CircleRing';
 
@@ -71,42 +72,40 @@ export default function Dashboard({
 }) {
   const displayGroups = Array.isArray(groups) ? groups : [];
   
-  // Calculate test average — only count published tests that have at least one graded submission
-  const gradedTests = tests.filter(t => t.status !== 'draft' && (t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0));
-  const testAverage = gradedTests.length > 0 
-    ? Math.round(gradedTests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / gradedTests.length)
+  // Uniform calculations matching Reports.jsx:
+  // 1. Group % = avg of all task/test percentages in that group
+  // 2. Overall % = avg of group percentages
+  // 3. Task Average = avg of all tasks
+  // 4. Test Average = avg of all tests
+
+  const groupAverages = displayGroups.map(group => {
+    const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
+    const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
+    const allGroupItems = [...groupTests, ...groupTasks];
+    if (allGroupItems.length === 0) return null;
+    return allGroupItems.reduce((acc, it) => acc + (Number(it.avg) || 0), 0) / allGroupItems.length;
+  }).filter(avg => avg !== null);
+
+  const overallPercentage = groupAverages.length > 0
+    ? Math.round(groupAverages.reduce((acc, v) => acc + v, 0) / groupAverages.length)
     : 0;
 
-  // Calculate task average — only count tasks that have at least one reviewed submission
-  const gradedTasks = tasks.filter(t => t.submissionsCount > 0 || t.hasSubmissions || Number(t.avg) > 0);
-  const taskAverage = gradedTasks.length > 0 
-    ? Math.round(gradedTasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / gradedTasks.length)
+  const testAverage = tests.length > 0 
+    ? Math.round(tests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / tests.length)
     : 0;
 
-  // Overall percentage
-  let overallPercentage = 0;
-  if (gradedTests.length > 0 && gradedTasks.length > 0) {
-    overallPercentage = Math.round((testAverage + taskAverage) / 2);
-  } else if (gradedTests.length > 0) {
-    overallPercentage = testAverage;
-  } else if (gradedTasks.length > 0) {
-    overallPercentage = taskAverage;
-  }
+  const taskAverage = tasks.length > 0 
+    ? Math.round(tasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / tasks.length)
+    : 0;
 
   // Total students from props
   const totalStudents = totalStudentsCount;
 
   return (
-    <div className="dashboard-content">
+    <div className="dashboard-content staff-dashboard-container">
 
-      {/* 6 Metric & Stat Boxes in One Single Line */}
-      <div style={{
-        display: 'flex',
-        gap: '0.85rem',
-        marginBottom: '1.75rem',
-        alignItems: 'stretch',
-        width: '100%'
-      }}>
+      {/* 6 Metric & Stat Boxes (Responsive Grid: 6 across desktop, 3 tablet, 2 mobile) */}
+      <div className="staff-metrics-row">
         {/* Metric 1: Overall Percentage (Purple Theme - Light, Simple & Premium with top-right Badge) */}
         <div style={{
           position: 'relative',
@@ -363,11 +362,7 @@ export default function Dashboard({
       </div>
 
       {/* Row 2: Dynamic Subject Groups (Matching Student Screenshot Layout & Color Themes) */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-        gap: '1.25rem'
-      }}>
+      <div className="staff-dashboard-groups-grid">
         {displayGroups.length === 0 ? (
           <div style={{
             gridColumn: '1 / -1',
@@ -405,24 +400,14 @@ export default function Dashboard({
           const groupBorder = groupThemeColor + '30'; // 30% opacity tint
 
           // Find tests and tasks belonging to this group
-          const groupTests = tests.filter(t => t.group_id === group.id);
-          const groupTasks = tasks.filter(t => t.group_id === group.id);
-          
-          // Only count tests and tasks that have actual graded submissions
-          const isTaskGraded = (t) => (t.reviewedCount || 0) > 0 || Number(t.avg) > 0;
-          const isTestGraded = (t) => (t.submissionsCount || 0) > 0 || Number(t.avg) > 0;
+          const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
+          const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
+          const allGroupItems = [...groupTests, ...groupTasks];
 
-          const gradedTests = groupTests.filter(isTestGraded);
-          const gradedTasks = groupTasks.filter(isTaskGraded);
-          const totalGradedCount = gradedTests.length + gradedTasks.length;
-
-          // Calculate dynamic group average: only divide by tests/tasks with graded submissions
-          let groupPct = 0;
-          if (totalGradedCount > 0) {
-            const testTotal = gradedTests.reduce((a, t) => a + (Number(t.avg) || 0), 0);
-            const taskTotal = gradedTasks.reduce((a, t) => a + (Number(t.avg) || 0), 0);
-            groupPct = Math.round((testTotal + taskTotal) / totalGradedCount);
-          }
+          // Calculate uniform group percentage: avg of all items in this group
+          const groupPct = allGroupItems.length > 0
+            ? Math.round(allGroupItems.reduce((acc, it) => acc + (Number(it.avg) || 0), 0) / allGroupItems.length)
+            : 0;
 
           // Build test list for the group
           const testItems = [
@@ -430,17 +415,32 @@ export default function Dashboard({
               id: gt.id,
               title: gt.title,
               score: Number(gt.avg) || 0,
-              hasGraded: isTestGraded(gt),
+              hasGraded: (gt.submissionsCount || 0) > 0 || Number(gt.avg) > 0,
               type: 'test'
             })),
             ...groupTasks.map(gt => ({
               id: gt.id,
               title: gt.title,
               score: Number(gt.avg) || 0,
-              hasGraded: isTaskGraded(gt),
+              hasGraded: (gt.reviewedCount || 0) > 0 || (gt.submissionsCount || 0) > 0 || Number(gt.avg) > 0,
               type: 'task'
             }))
           ];
+
+          const hasTests = groupTests.length > 0;
+          const hasTasks = groupTasks.length > 0;
+          let cardTypeLabel = null;
+          let cardTypeBg = '#2563eb';
+          if (hasTests && hasTasks) {
+            cardTypeLabel = `${groupTests.length} Tests · ${groupTasks.length} Tasks`;
+            cardTypeBg = '#4f46e5';
+          } else if (hasTasks) {
+            cardTypeLabel = `${groupTasks.length} ${groupTasks.length === 1 ? 'Task' : 'Tasks'}`;
+            cardTypeBg = '#0d9488';
+          } else if (hasTests) {
+            cardTypeLabel = `${groupTests.length} ${groupTests.length === 1 ? 'Test' : 'Tests'}`;
+            cardTypeBg = '#2563eb';
+          }
 
           return (
             <div
@@ -449,14 +449,46 @@ export default function Dashboard({
                 background: groupBg,
                 borderRadius: '16px',
                 border: `1.5px solid ${groupBorder}`,
-                padding: '1.35rem 1.5rem',
+                padding: '1.45rem 1.5rem 1.35rem 1.5rem',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                transition: 'transform 0.2s, box-shadow 0.2s'
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                position: 'relative',
+                marginTop: cardTypeLabel ? '8px' : '0'
               }}
             >
+              {/* Top Left Corner Badge */}
+              {cardTypeLabel && (
+                <div style={{
+                  position: 'absolute',
+                  top: '-11px',
+                  left: '16px',
+                  background: cardTypeBg,
+                  color: '#ffffff',
+                  fontSize: '0.67rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.4px',
+                  textTransform: 'uppercase',
+                  padding: '2.5px 9px',
+                  borderRadius: '20px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                  zIndex: 4
+                }}>
+                  {hasTasks && !hasTests ? (
+                    <BookOpen size={11} color="#ffffff" />
+                  ) : hasTests && !hasTasks ? (
+                    <FileCheck size={11} color="#ffffff" />
+                  ) : (
+                    <Layers size={11} color="#ffffff" />
+                  )}
+                  <span>{cardTypeLabel}</span>
+                </div>
+              )}
               {/* Group Card Header */}
               <div>
                 <div style={{
@@ -548,11 +580,27 @@ export default function Dashboard({
                       return (
                         <div key={testItem.id || tIdx} style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0, flex: 1, paddingRight: '0.5rem' }}>
+                              {/* Type Badge: Task or Test */}
+                              <span style={{
+                                fontSize: '0.64rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.3px',
+                                padding: '1.5px 6px',
+                                borderRadius: '4px',
+                                background: testItem.type === 'task' ? '#ccfbf1' : '#dbeafe',
+                                color: testItem.type === 'task' ? '#0f766e' : '#1e40af',
+                                border: testItem.type === 'task' ? '1px solid #99f6e4' : '1px solid #bfdbfe',
+                                flexShrink: 0
+                              }}>
+                                {testItem.type === 'task' ? 'Task' : 'Test'}
+                              </span>
+
                               {testItem.type === 'task' ? (
-                                <BookOpen size={15} color="#14b8a6" style={{ flexShrink: 0 }} />
+                                <BookOpen size={14} color="#14b8a6" style={{ flexShrink: 0 }} />
                               ) : (
-                                <TestIcon size={15} color="#1d72fe" style={{ flexShrink: 0 }} />
+                                <TestIcon size={14} color="#1d72fe" style={{ flexShrink: 0 }} />
                               )}
                               <span style={{
                                 fontSize: '0.82rem',
@@ -568,10 +616,10 @@ export default function Dashboard({
                             <span style={{
                               fontSize: '0.82rem',
                               fontWeight: 700,
-                              color: testItem.hasGraded ? '#1e293b' : '#94a3b8',
+                              color: testItem.score > 0 ? '#1e293b' : '#64748b',
                               flexShrink: 0
                             }}>
-                              {testItem.hasGraded ? `${score}%` : '—'}
+                              {`${testItem.score}%`}
                             </span>
                           </div>
 
@@ -585,9 +633,9 @@ export default function Dashboard({
                             marginTop: '2px'
                           }}>
                             <div style={{
-                              width: `${testItem.hasGraded ? Math.min(score, 100) : 0}%`,
+                              width: `${Math.min(Math.max(testItem.score, 0), 100)}%`,
                               height: '100%',
-                              background: testItem.hasGraded ? barColor : '#cbd5e1',
+                              background: testItem.score > 0 ? barColor : '#cbd5e1',
                               borderRadius: '10px',
                               transition: 'width 0.8s ease-in-out'
                             }} />

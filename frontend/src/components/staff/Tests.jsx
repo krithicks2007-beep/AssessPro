@@ -12,7 +12,8 @@ import {
   Edit,
   Trash2,
   Layers,
-  Search
+  Search,
+  CheckCircle2
 } from 'lucide-react';
 
 function AutoLaunchTimer({ test, onTriggerLaunch }) {
@@ -478,16 +479,29 @@ export default function Tests({
                     </div>
                   </div>
 
-                  <span style={{
-                    background: `${grp.color}15`,
-                    color: grp.color,
-                    padding: '3px 10px',
-                    borderRadius: '20px',
-                    fontSize: '0.74rem',
-                    fontWeight: 800
-                  }}>
-                    {sectionTests.length} {sectionTests.length === 1 ? 'Test' : 'Tests'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <span style={{
+                      background: `${grp.color}15`,
+                      color: grp.color,
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800
+                    }}>
+                      {sectionTests.length} {sectionTests.length === 1 ? 'Test' : 'Tests'}
+                    </span>
+                    <span style={{
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      color: '#0f172a',
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.74rem',
+                      fontWeight: 800
+                    }}>
+                      Group Avg: {sectionTests.length > 0 ? (sectionTests.reduce((acc, t) => acc + (Number(t.avg) || 0), 0) / sectionTests.length).toFixed(1) : '0.0'}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Grid of Test Cards for this Group */}
@@ -600,6 +614,12 @@ export default function Tests({
                               <Users size={15} color="#8b5cf6" />
                               <span>Assigned to: <strong style={{ color: t.assigned_students && t.assigned_students.length > 0 ? '#7c3aed' : '#059669' }}>{t.assigned_students && t.assigned_students.length > 0 ? `${t.assigned_students.length} Selected Student(s)` : 'All Students (Universal)'}</strong></span>
                             </div>
+                            {t.submissionsCount > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginTop: '0.1rem' }}>
+                                <CheckCircle2 size={15} color="#3b82f6" />
+                                <span>Completed: <strong>{t.submissionsCount} · Batch Avg: {t.avg || 0}%</strong></span>
+                              </div>
+                            )}
                           </div>
 
                           {t.status === 'draft' && t.auto_launch && (
