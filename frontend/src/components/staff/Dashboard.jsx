@@ -78,25 +78,30 @@ export default function Dashboard({
   // 3. Task Average = avg of all tasks
   // 4. Test Average = avg of all tests
 
-  const groupAverages = displayGroups.map(group => {
-    const groupTests = tests.filter(t => String(t.group_id) === String(group.id));
-    const groupTasks = tasks.filter(t => String(t.group_id) === String(group.id));
-    const allGroupItems = [...groupTests, ...groupTasks];
-    if (allGroupItems.length === 0) return null;
-    return allGroupItems.reduce((acc, it) => acc + (Number(it.avg) || 0), 0) / allGroupItems.length;
-  }).filter(avg => avg !== null);
+  const hasTests = tests.length > 0;
+  const hasTasks = tasks.length > 0;
 
-  const overallPercentage = groupAverages.length > 0
-    ? Math.round(groupAverages.reduce((acc, v) => acc + v, 0) / groupAverages.length)
-    : 0;
-
-  const testAverage = tests.length > 0 
+  const testAverage = hasTests
     ? Math.round(tests.reduce((acc, test) => acc + (Number(test.avg) || 0), 0) / tests.length)
-    : 0;
+    : null;
 
-  const taskAverage = tasks.length > 0 
+  const taskAverage = hasTasks
     ? Math.round(tasks.reduce((acc, task) => acc + (Number(task.avg) || 0), 0) / tasks.length)
-    : 0;
+    : null;
+
+  // When there are no tests, overall percentage is 100% determined by tasks!
+  // When there are no tasks, overall percentage is 100% determined by tests!
+  // When both exist, overall percentage is the average of active group averages (or test & task averages).
+  let overallPercentage = 0;
+  if (hasTests && hasTasks) {
+    overallPercentage = groupAverages.length > 0
+      ? Math.round(groupAverages.reduce((acc, v) => acc + v, 0) / groupAverages.length)
+      : Math.round(((testAverage || 0) + (taskAverage || 0)) / 2);
+  } else if (hasTasks) {
+    overallPercentage = taskAverage || 0;
+  } else if (hasTests) {
+    overallPercentage = testAverage || 0;
+  }
 
   // Total students from props
   const totalStudents = totalStudentsCount;
@@ -188,16 +193,22 @@ export default function Dashboard({
           </div>
 
           <CircleRing 
-            percentage={testAverage} 
-            color="#3b82f6" 
+            percentage={testAverage !== null ? testAverage : 0} 
+            color={testAverage !== null ? "#3b82f6" : "#cbd5e1"} 
             size={84} 
             strokeWidth={7.5} 
-            fontSizeOverride={testAverage === 100 ? '1.1rem' : '1.25rem'}
-            fontColorOverride="#1e3a8a"
+            fontSizeOverride={testAverage === null ? '1.5rem' : (testAverage === 100 ? '1.1rem' : '1.25rem')}
+            fontColorOverride={testAverage === null ? '#94a3b8' : '#1e3a8a'}
+            textOverride={testAverage === null ? '—' : undefined}
           />
           <div style={{ fontSize: '0.88rem', color: '#334155', fontWeight: 700, textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em' }}>
             Test Average
           </div>
+          {testAverage === null && (
+            <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '-0.35rem', fontWeight: 500 }}>
+              No tests created
+            </div>
+          )}
         </div>
 
         {/* Metric 3: Task Average (Green/Teal Theme - Light, Simple & Premium with top-right Badge) */}
@@ -235,16 +246,22 @@ export default function Dashboard({
           </div>
 
           <CircleRing 
-            percentage={taskAverage} 
-            color="#14b8a6" 
+            percentage={taskAverage !== null ? taskAverage : 0} 
+            color={taskAverage !== null ? "#14b8a6" : "#cbd5e1"} 
             size={84} 
             strokeWidth={7.5} 
-            fontSizeOverride={taskAverage === 100 ? '1.1rem' : '1.25rem'}
-            fontColorOverride="#115e59"
+            fontSizeOverride={taskAverage === null ? '1.5rem' : (taskAverage === 100 ? '1.1rem' : '1.25rem')}
+            fontColorOverride={taskAverage === null ? '#94a3b8' : '#115e59'}
+            textOverride={taskAverage === null ? '—' : undefined}
           />
           <div style={{ fontSize: '0.88rem', color: '#334155', fontWeight: 700, textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em' }}>
             Task Average
           </div>
+          {taskAverage === null && (
+            <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '-0.35rem', fontWeight: 500 }}>
+              No tasks created
+            </div>
+          )}
         </div>
 
         {/* Stat 1: Total Tests (Light, Simple & Premium with Circular Icon) */}
